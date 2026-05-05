@@ -13,7 +13,7 @@ import os
 # Pastikan ID ini sesuai dengan file Google Sheets Bapak
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
 # Masukkan ID Folder Google Drive Bapak di sini
-DRIVE_FOLDER_ID = "MASUKKAN_ID_FOLDER_DRIVE_ANDA" 
+DRIVE_FOLDER_ID = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" 
 
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
