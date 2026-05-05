@@ -25,13 +25,13 @@ def append_to_sheets(data):
     ).execute()
 
 # --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Input Pengeluaran Asep Wahyu", layout="centered")
+st.set_page_config(page_title="Input Pengeluaran Wahyudi", layout="centered")
 st.title("📊 Rekap Pengeluaran & Nota PDF")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama", value="Asep Wahyu")
+    nama = st.text_input("Nama", value="Wahyudi")
     tgl = st.date_input("Tanggal", datetime.now())
-    keperluan = st.text_area("Keperluan (Misal: Maintenance/Visit)")
+    keperluan = st.text_area("Keperluan (Misal: Maintenance Kilian/Romaco)")
     
     st.divider()
     c1, c2 = st.columns(2)
@@ -57,50 +57,69 @@ if submit:
                 # A. SIMPAN KE GOOGLE SHEETS
                 append_to_sheets(data_row)
                 
-                # B. BUAT PDF
+                # B. BUAT PDF DENGAN KOP SURAT
                 pdf = FPDF()
                 pdf.add_page()
-                pdf.set_font("Arial", "B", 16)
-                pdf.cell(0, 10, "NOTA PENGELUARAN LAPANGAN", ln=True, align="C")
+                
+                # --- BAGIAN KOP SURAT ---
+                pdf.set_font("Arial", "B", 14)
+                pdf.cell(0, 7, "NAMA PERUSAHAAN ANDA", ln=True, align="C") # Ganti dengan nama kantor
+                pdf.set_font("Arial", "", 10)
+                pdf.cell(0, 5, "Alamat Kantor: Jl. Industri No. 123, Kawasan Farmasi", ln=True, align="C")
+                pdf.cell(0, 5, "Telp: (021) 1234567 | Email: maintenance@company.com", ln=True, align="C")
+                
+                # Garis Kop Surat (Tebal)
+                pdf.set_line_width(1)
+                pdf.line(10, 32, 200, 32)
+                pdf.set_line_width(0.2) # Kembalikan ke garis normal
                 pdf.ln(10)
                 
-                pdf.set_font("Arial", "", 12)
-                pdf.cell(50, 10, "Nama", 0); pdf.cell(0, 10, f": {nama}", 0, ln=True)
-                pdf.cell(50, 10, "Tanggal", 0); pdf.cell(0, 10, f": {tgl}", 0, ln=True)
-                pdf.cell(50, 10, "Keperluan", 0); pdf.multi_cell(0, 10, f": {keperluan}")
-                pdf.ln(5)
-                pdf.cell(0, 0, "", "T", ln=True) 
+                # Judul Laporan
+                pdf.set_font("Arial", "B", 14)
+                pdf.cell(0, 10, "LAPORAN PENGELUARAN LAPANGAN", ln=True, align="C")
                 pdf.ln(5)
                 
-                pdf.cell(50, 10, "Bensin", 0); pdf.cell(0, 10, f": Rp {bensin:,}", 0, ln=True)
-                pdf.cell(50, 10, "Toll", 0); pdf.cell(0, 10, f": Rp {toll:,}", 0, ln=True)
-                pdf.cell(50, 10, "Makan", 0); pdf.cell(0, 10, f": Rp {makan:,}", 0, ln=True)
-                pdf.cell(50, 10, "Parkir", 0); pdf.cell(0, 10, f": Rp {parkir:,}", 0, ln=True)
+                # Isi Data
+                pdf.set_font("Arial", "", 12)
+                pdf.cell(50, 10, "Nama Personel", 0); pdf.cell(0, 10, f": {nama}", 0, ln=True)
+                pdf.cell(50, 10, "Tanggal Input", 0); pdf.cell(0, 10, f": {tgl}", 0, ln=True)
+                pdf.cell(50, 10, "Keperluan", 0); pdf.multi_cell(0, 10, f": {keperluan}")
+                pdf.ln(5)
+                
+                # Tabel Biaya
+                pdf.set_font("Arial", "B", 12)
+                pdf.cell(50, 10, "Rincian Biaya:", ln=True)
+                pdf.set_font("Arial", "", 12)
+                
+                pdf.cell(50, 10, " - Bensin", 0); pdf.cell(0, 10, f": Rp {bensin:,}", 0, ln=True)
+                pdf.cell(50, 10, " - Toll", 0); pdf.cell(0, 10, f": Rp {toll:,}", 0, ln=True)
+                pdf.cell(50, 10, " - Makan", 0); pdf.cell(0, 10, f": Rp {makan:,}", 0, ln=True)
+                pdf.cell(50, 10, " - Parkir/Lainnya", 0); pdf.cell(0, 10, f": Rp {parkir:,}", 0, ln=True)
                 
                 pdf.set_font("Arial", "B", 12)
                 pdf.cell(50, 10, "TOTAL", 0); pdf.cell(0, 10, f": Rp {total:,}", 0, ln=True)
                 
+                # C. TAMBAHKAN FOTO KE HALAMAN BARU
                 if bukti_files:
                     for f in bukti_files:
                         pdf.add_page()
-                        pdf.set_font("Arial", "B", 14)
-                        pdf.cell(0, 10, f"LAMPIRAN: {f.name}", ln=True)
+                        pdf.set_font("Arial", "B", 12)
+                        pdf.cell(0, 10, f"LAMPIRAN BUKTI: {f.name}", ln=True)
                         tmp_path = f"temp_{f.name}"
                         with open(tmp_path, "wb") as tmp_file:
                             tmp_file.write(f.getbuffer())
                         pdf.image(tmp_path, x=10, w=180) 
                         os.remove(tmp_path)
                 
-                # KONVERSI KE BYTES (PENTING!)
                 pdf_output = bytes(pdf.output()) 
                 
                 st.success("✅ Data tersimpan di Google Sheets!")
                 st.balloons()
                 
                 st.download_button(
-                    label="📥 Download PDF Nota",
+                    label="📥 Download PDF dengan Kop Surat",
                     data=pdf_output,
-                    file_name=f"Nota_{nama}_{tgl}.pdf",
+                    file_name=f"Laporan_{nama}_{tgl}.pdf",
                     mime="application/pdf"
                 )
                 
