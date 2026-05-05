@@ -31,9 +31,9 @@ st.title("🚀 Form Pengeluaran Lapangan")
 st.write("Input pengeluaran langsung dari HP ke Google Drive.")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama", value="Wahyudi")
+    nama = st.text_input("Nama", value="Asep Wahyu")
     tgl = st.date_input("Tanggal", datetime.now())
-    keperluan = st.text_area("Keperluan (Contoh: Maintenance Romaco/Kilian)")
+    keperluan = st.text_area("Keperluan")
     
     st.divider()
     col1, col2 = st.columns(2)
@@ -43,7 +43,7 @@ with st.form("main_form", clear_on_submit=True):
     parkir = col2.number_input("Parkir/Lainnya (Rp)", min_value=0, step=1000)
     
     st.divider()
-    bukti_files = st.file_uploader("📸 Foto Nota/Bukti", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
+    bukti_files = st.file_uploader("📸 Foto Nota/Bukti", accept_multiple_files=True, type=['jpg', 'jpeg', 'png',pdf])
     
     submit = st.form_submit_button("Simpan ke Google Drive")
 
