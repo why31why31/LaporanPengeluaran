@@ -10,7 +10,7 @@ import os
 # Ganti dengan ID folder Google Drive Anda
 FOLDER_ID_DRIVE = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" 
 # Ganti dengan email Gmail pribadi Anda
-EMAIL_PRIBADI = "email_pribadi_anda@gmail.com" 
+EMAIL_PRIBADI = "why31why31@gmail.com" 
 
 def get_drive_service():
     info = st.secrets["gcp_service_account"]
