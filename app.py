@@ -10,6 +10,7 @@ import os
 
 # --- 1. KONFIGURASI ---
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
+KOP_FILE_PATH = "kop_tetap.png" # Nama file penyimpanan kop di server
 
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
@@ -47,13 +48,26 @@ tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
 with tab1:
     st.header("Input Data Pengeluaran")
     
+    # --- LOGIKA PENYIMPANAN KOP TETAP ---
+    st.sidebar.header("⚙️ Pengaturan Kop Surat")
+    update_kop = st.sidebar.file_uploader("Upload/Ganti Kop Surat Baru", type=['jpg','jpeg','png'])
+    
+    if update_kop:
+        with open(KOP_FILE_PATH, "wb") as f:
+            f.write(update_kop.getbuffer())
+        st.sidebar.success("Kop berhasil diperbarui secara permanen!")
+
+    # Cek apakah file kop sudah ada
+    kop_exist = os.path.exists(KOP_FILE_PATH)
+    
     with st.form("main_form"):
-        # Bagian Atas: Identitas & Kop
-        st.write("🏢 **Identitas & Kop Surat**")
-        col_kop1, col_kop2 = st.columns([1, 2])
-        logo_file = col_kop1.file_uploader("Upload Gambar Kop/Logo", type=['jpg','jpeg','png'])
-        lebar_kop = col_kop2.slider("Atur Lebar Kop di PDF (mm)", 50, 190, 190)
-        
+        # Info Kop saat ini
+        if kop_exist:
+            st.image(KOP_FILE_PATH, width=300)
+            st.caption("✅ Kop Surat Aktif (Bisa diganti lewat sidebar kiri)")
+        else:
+            st.warning("⚠️ Belum ada Kop Surat. Silakan upload melalui sidebar di sebelah kiri.")
+
         st.divider()
         col_id1, col_id2 = st.columns(2)
         nama = col_id1.text_input("Nama Personel", value="Wahyudi")
@@ -68,7 +82,7 @@ with tab1:
         parkir = c4.number_input("Parkir (Rp)", min_value=0, step=1000)
         
         st.divider()
-        st.write("📂 **Lampiran Dokumen**")
+        st.write("📂 **Lampiran Nota**")
         lebar_nota = st.slider("Atur Lebar Foto Nota di PDF (mm)", 50, 190, 150)
         bukti_files = st.file_uploader("📸 Upload Foto Nota", accept_multiple_files=True, type=['jpg','jpeg','png'])
         report_file = st.file_uploader("📄 Upload PDF Service Report", type=['pdf'])
@@ -81,9 +95,8 @@ with tab1:
     if btn_preview:
         st.markdown("---")
         with st.container(border=True):
-            # Header Gambar di Preview
-            if logo_file:
-                st.image(logo_file, width=int(lebar_kop * 3))
+            if kop_exist:
+                st.image(KOP_FILE_PATH, width=500)
             else:
                 st.markdown("<h2 style='text-align: center;'>LAPORAN KERJA & BIAYA</h2>", unsafe_allow_html=True)
             
@@ -105,7 +118,6 @@ with tab1:
                 st.write("**Lampiran Nota:**")
                 for f in bukti_files:
                     st.image(f, width=int(lebar_nota * 2.5))
-        st.info("💡 Cek preview di atas. Jika sudah pas, klik **SIMPAN & CETAK PDF**.")
 
     # --- LOGIKA SUBMIT ---
     if btn_submit:
@@ -124,22 +136,19 @@ with tab1:
                     pdf = FPDF()
                     pdf.add_page()
                     
-                    # Cek Kop Gambar
-                    if logo_file:
-                        tmp_kop = f"kop_{logo_file.name}"
-                        with open(tmp_kop, "wb") as f_kop: f_kop.write(logo_file.getbuffer())
-                        # Posisikan Kop di Tengah
-                        pdf.image(tmp_kop, x=(210-lebar_kop)/2, y=10, w=lebar_kop)
-                        pdf.ln(lebar_kop/3 + 5) # Spasi dinamis berdasarkan tinggi logo
-                        os.remove(tmp_kop)
+                    if kop_exist:
+                        # Menggunakan lebar standar 190mm agar proporsional
+                        pdf.image(KOP_FILE_PATH, x=10, y=10, w=190)
+                        pdf.ln(35) # Jarak aman di bawah logo
                     else:
                         pdf.set_font("Arial", "B", 16)
                         pdf.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
+                        pdf.ln(10)
                     
-                    pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
+                    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
                     pdf.ln(10)
                     
-                    pdf.set_font("Arial", "", 12)
+                    pdf.set_font("Arial", "", 11)
                     pdf.cell(0, 8, f"Tanggal: {tgl_iso}", ln=True)
                     pdf.cell(0, 8, f"Oleh: {nama}", ln=True)
                     pdf.cell(0, 8, f"Pekerjaan: {keperluan}", ln=True)
