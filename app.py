@@ -10,7 +10,7 @@ import os
 
 # --- 1. KONFIGURASI ---
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-KOP_FILE_PATH = "kop_tetap.png" # Nama file penyimpanan kop di server
+KOP_FILE_PATH = "kop_tetap.png" 
 
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
@@ -46,27 +46,29 @@ st.set_page_config(page_title="Laporan Maintenance Wahyudi", layout="wide")
 tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
 
 with tab1:
-    st.header("Input Data Pengeluaran")
-    
-    # --- LOGIKA PENYIMPANAN KOP TETAP ---
+    # --- SIDEBAR PENGATURAN KOP ---
     st.sidebar.header("⚙️ Pengaturan Kop Surat")
-    update_kop = st.sidebar.file_uploader("Upload/Ganti Kop Surat Baru", type=['jpg','jpeg','png'])
+    update_kop = st.sidebar.file_uploader("Upload/Ganti Kop Surat", type=['jpg','jpeg','png'])
     
     if update_kop:
         with open(KOP_FILE_PATH, "wb") as f:
             f.write(update_kop.getbuffer())
-        st.sidebar.success("Kop berhasil diperbarui secara permanen!")
+        st.sidebar.success("Kop berhasil disimpan!")
 
-    # Cek apakah file kop sudah ada
+    # Opsi Atur Ukuran Kop (Disimpan dalam session state agar awet selama sesi jalan)
+    lebar_kop = st.sidebar.slider("Atur Lebar Kop di PDF (mm)", 30, 190, 190)
+    posisi_y_kop = st.sidebar.slider("Atur Jarak Atas Kop (mm)", 5, 20, 10)
+    spasi_bawah_kop = st.sidebar.slider("Atur Spasi Bawah Kop (mm)", 10, 50, 35)
+
     kop_exist = os.path.exists(KOP_FILE_PATH)
     
-    with st.form("main_form"):
-        # Info Kop saat ini
+    st.header("Input Data Pengeluaran")
+    with st.form("main_form", clear_on_submit=True):
         if kop_exist:
-            st.image(KOP_FILE_PATH, width=300)
-            st.caption("✅ Kop Surat Aktif (Bisa diganti lewat sidebar kiri)")
+            st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
+            st.caption("✅ Kop Surat Aktif")
         else:
-            st.warning("⚠️ Belum ada Kop Surat. Silakan upload melalui sidebar di sebelah kiri.")
+            st.warning("⚠️ Silakan upload Kop Surat melalui sidebar kiri.")
 
         st.divider()
         col_id1, col_id2 = st.columns(2)
@@ -96,11 +98,11 @@ with tab1:
         st.markdown("---")
         with st.container(border=True):
             if kop_exist:
-                st.image(KOP_FILE_PATH, width=500)
+                st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             else:
                 st.markdown("<h2 style='text-align: center;'>LAPORAN KERJA & BIAYA</h2>", unsafe_allow_html=True)
             
-            st.markdown("<hr style='border: 1px solid black;'>", unsafe_allow_html=True)
+            st.markdown(f"<div style='margin-top:{spasi_bawah_kop}px; border-top: 2px solid black;'></div>", unsafe_allow_html=True)
             
             p_col1, p_col2 = st.columns(2)
             p_col1.write(f"**Tanggal:** {tgl_input}")
@@ -128,18 +130,16 @@ with tab1:
                 try:
                     total = bensin + toll + makan + parkir
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
-                    
-                    # 1. Simpan ke Sheets
                     append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
                     
-                    # 2. Buat PDF
                     pdf = FPDF()
                     pdf.add_page()
                     
                     if kop_exist:
-                        # Menggunakan lebar standar 190mm agar proporsional
-                        pdf.image(KOP_FILE_PATH, x=10, y=10, w=190)
-                        pdf.ln(35) # Jarak aman di bawah logo
+                        # Menggunakan variabel lebar dan posisi dari sidebar
+                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=posisi_y_kop, w=lebar_kop)
+                        pdf.set_y(posisi_y_kop + (lebar_kop/4) + 10) # Auto-adjust posisi teks di bawah kop
+                        pdf.ln(spasi_bawah_kop / 2)
                     else:
                         pdf.set_font("Arial", "B", 16)
                         pdf.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
