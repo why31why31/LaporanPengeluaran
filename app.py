@@ -19,10 +19,30 @@ def get_drive_service():
 
 def upload_to_drive(file_path, file_name):
     service = get_drive_service()
+    
+    # 1. Upload file ke folder tujuan
     file_metadata = {'name': file_name, 'parents': [FOLDER_ID_DRIVE]}
     media = MediaFileUpload(file_path, resumable=True)
     file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    return file.get('id')
+    file_id = file.get('id')
+    
+    # 2. PINDAHKAN KEPEMILIKAN (Agar tidak kena error kuota Service Account)
+    # Ganti 'email_pribadi_anda@gmail.com' dengan email asli Anda
+    user_permission = {
+        'type': 'user',
+        'role': 'owner',
+        'emailAddress': 'email_pribadi_anda@gmail.com' 
+    }
+    
+    # Eksekusi pemindahan pemilik (transferOwnership wajib True)
+    service.permissions().create(
+        fileId=file_id,
+        body=user_permission,
+        transferOwnership=True,
+        fields='id'
+    ).execute()
+    
+    return file_id
 
 # --- UI APP ---
 st.set_page_config(page_title="Input Pengeluaran Wahyudi", layout="centered")
