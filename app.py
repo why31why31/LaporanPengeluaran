@@ -25,14 +25,22 @@ def get_all_data():
         return pd.DataFrame()
     return pd.DataFrame(values[1:], columns=values[0])
 
+# --- 1. Pastikan Format Tanggal Benar di Data Row ---
+if submit:
+    # Mengonversi objek date Streamlit menjadi string format standar ISO
+    tanggal_fix = tgl_input.strftime('%Y-%m-%d') 
+    
+    # Data row yang dikirim (Pastikan kolom tanggal ada di urutan pertama)
+    data_row = [tanggal_fix, nama_input, keperluan_input, bensin, toll, makan, parkir, total]
+
+# --- 2. Update Fungsi Append ---
 def append_to_sheets(data):
-    service = get_sheets_service()
+    service = get_gcp_service('sheets', 'v4')
     body = {'values': [data]}
-    # Gunakan .append agar data baru masuk ke baris kosong paling bawah (tidak menimpa)
     service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID,
         range="Pengeluaran!A1",
-        valueInputOption="USER_ENTERED",
+        valueInputOption="USER_ENTERED", # PENTING: Agar Sheets otomatis konversi string ke format Tanggal/Angka
         insertDataOption="INSERT_ROWS",
         body=body
     ).execute()
