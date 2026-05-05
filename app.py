@@ -9,9 +9,9 @@ from googleapiclient.http import MediaIoBaseUpload
 import io
 import os
 
-# --- 1. KONFIGURASI ---
+# --- 1. KONFIGURASI API ---
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-DRIVE_FOLDER_ID = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" # ID Folder Bapak
+DRIVE_FOLDER_ID = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX"
 
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
@@ -24,10 +24,24 @@ def append_to_sheets(data):
     service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID, 
         range="Pengeluaran!A1",
-        valueInputOption="USER_ENTERED", # Memaksa format tanggal/angka dikenali Sheets
+        valueInputOption="USER_ENTERED", 
         insertDataOption="INSERT_ROWS", 
         body=body
     ).execute()
+
+def get_all_data():
+    try:
+        service = get_gcp_service('sheets', 'v4')
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:H").execute()
+        values = result.get('values', [])
+        if not values:
+            return pd.DataFrame()
+        # Membuat DataFrame dan membersihkan spasi pada header
+        df = pd.DataFrame(values[1:], columns=values[0])
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 def upload_to_drive(file_content, file_name):
     try:
@@ -36,19 +50,21 @@ def upload_to_drive(file_content, file_name):
         media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype='application/pdf', resumable=False)
         service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
     except Exception as e:
-        st.warning(f"Catatan: PDF tidak terupload ke Drive (Cek kuota/izin), tapi data Sheets aman. Error: {e}")
+        st.warning(f"Gagal simpan ke Drive (tetap tersimpan di Sheets): {e}")
 
-# --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Sistem Laporan Wahyudi", layout="centered")
+# --- 2. Tampilan Aplikasi ---
+st.set_page_config(page_title="Laporan Maintenance Wahyudi", layout="centered")
+
+# Inisialisasi Tab agar tidak hilang
 tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
 
+# --- TAB 1: INPUT ---
 with tab1:
-    st.header("Input Pengeluaran Baru")
-    # Form harus membungkus semua input dan tombol submit
+    st.header("Input Data Maintenance")
     with st.form("main_form", clear_on_submit=True):
         nama = st.text_input("Nama Personel", value="Wahyudi")
-        tgl = st.date_input("Tanggal Maintenance", datetime.now())
-        keperluan = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
+        tgl_input = st.date_input("Tanggal Maintenance", datetime.now())
+        keperluan = st.text_area("Detail Pekerjaan")
         
         c1, c2 = st.columns(2)
         bensin = c1.number_input("Bensin (Rp)", min_value=0, step=1000)
@@ -60,10 +76,8 @@ with tab1:
         bukti_files = st.file_uploader("📸 Foto Nota", accept_multiple_files=True, type=['jpg','jpeg','png'])
         report_file = st.file_uploader("📄 Service Report (PDF)", type=['pdf'])
         
-        # Variabel 'submit' dibuat di sini
-        submit = st.form_submit_button("Simpan & Buat Laporan")
+        submit = st.form_submit_button("Simpan Data & Buat PDF")
 
-    # Logika 'if submit' harus berada di dalam 'with tab1'
     if submit:
         if not keperluan:
             st.error("Kolom Keperluan wajib diisi!")
@@ -71,27 +85,37 @@ with tab1:
             with st.spinner("Sedang memproses..."):
                 try:
                     total = bensin + toll + makan + parkir
-                    # Perbaikan Format Tanggal agar dikenali Sheets
-                    tgl_iso = tgl.strftime('%Y-%m-%d')
-                    data_row = [tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total]
+                    # FORMAT TANGGAL: Menggunakan format YYYY-MM-DD agar Sheets mengenalinya sebagai Date
+                    tgl_fix = tgl_input.strftime('%Y-%m-%d')
+                    data_row = [tgl_fix, nama, keperluan, bensin, toll, makan, parkir, total]
                     
                     # 1. Simpan ke Sheets
                     append_to_sheets(data_row)
                     
-                    # 2. Proses PDF (Sama seperti sebelumnya)
+                    # 2. Buat PDF Dasar
                     pdf = FPDF()
                     pdf.add_page()
                     pdf.set_font("Arial", "B", 14)
                     pdf.cell(0, 10, "LAPORAN KERJA & BIAYA", ln=True, align="C")
-                    pdf.line(10, 25, 200, 25)
                     pdf.ln(10)
                     pdf.set_font("Arial", "", 12)
-                    pdf.cell(50, 8, f"Bensin: Rp {bensin:,}", ln=True)
-                    pdf.cell(50, 8, f"Toll: Rp {toll:,}", ln=True)
-                    pdf.cell(50, 10, f"TOTAL: Rp {total:,}", ln=True)
+                    pdf.cell(0, 10, f"Tanggal: {tgl_fix}", ln=True)
+                    pdf.cell(0, 10, f"Keperluan: {keperluan}", ln=True)
+                    pdf.cell(0, 10, f"Total Biaya: Rp {total:,}", ln=True)
                     
-                    # Gabung lampiran jika ada
+                    # Lampirkan foto jika ada
+                    if bukti_files:
+                        pdf.add_page()
+                        for f in bukti_files:
+                            tmp_img = f"tmp_{f.name}"
+                            with open(tmp_img, "wb") as img_f:
+                                img_f.write(f.getbuffer())
+                            pdf.image(tmp_img, x=10, w=150)
+                            os.remove(tmp_img)
+                    
                     pdf_bytes = pdf.output()
+                    
+                    # 3. Gabung PDF jika ada report
                     merger = PdfWriter()
                     merger.append(io.BytesIO(pdf_bytes))
                     if report_file:
@@ -101,14 +125,34 @@ with tab1:
                     merger.write(final_pdf)
                     content = final_pdf.getvalue()
                     
-                    # 3. Upload ke Drive
-                    upload_to_drive(content, f"Laporan_{nama}_{tgl_iso}.pdf")
+                    # 4. Simpan ke Drive
+                    upload_to_drive(content, f"Laporan_{nama}_{tgl_fix}.pdf")
                     
-                    st.success("✅ Data berhasil masuk ke Google Sheets!")
-                    st.download_button("📥 Download PDF", content, f"Laporan_{tgl_iso}.pdf", "application/pdf")
+                    st.success(f"✅ Berhasil! Data tanggal {tgl_fix} tersimpan.")
+                    st.download_button("📥 Download PDF", content, f"Laporan_{tgl_fix}.pdf", "application/pdf")
                 except Exception as e:
-                    st.error(f"Terjadi kesalahan sistem: {e}")
+                    st.error(f"Error: {e}")
 
+# --- TAB 2: KUMULATIF ---
 with tab2:
-    st.header("Laporan Kumulatif")
-    # (Bapak bisa memasukkan kode filter tanggal di sini nanti)
+    st.header("Rekap Laporan Per Periode")
+    tgl_range = st.date_input("Pilih Rentang Tanggal", value=(datetime.now(), datetime.now()), key="range_laporan")
+    
+    if st.button("Tampilkan Rekap"):
+        df = get_all_data()
+        if not df.empty:
+            # Konversi kolom tanggal agar bisa difilter
+            df['Tanggal'] = pd.to_datetime(df['Tanggal']).dt.date
+            
+            if len(tgl_range) == 2:
+                mulai, selesai = tgl_range
+                mask = (df['Tanggal'] >= mulai) & (df['Tanggal'] <= selesai)
+                df_filtered = df.loc[mask]
+                
+                if not df_filtered.empty:
+                    st.dataframe(df_filtered, use_container_width=True)
+                    # Tombol download csv sederhana sebagai opsi tambahan
+                    csv = df_filtered.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Download Excel/CSV", csv, "rekap.csv", "text/csv")
+                else:
+                    st.warning("Tidak ada data pada rentang tanggal tersebut.")
