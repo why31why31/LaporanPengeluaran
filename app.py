@@ -9,7 +9,7 @@ import os
 # --- KONFIGURASI GOOGLE SHEETS ---
 # Masukkan ID Spreadsheet yang Anda buat tadi
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-RANGE_NAME = "Sheet1!A1" # Nama sheet dan sel mulai
+RANGE_NAME = "Pengeluaran!A1" # Nama sheet dan sel mulai
 
 def get_sheets_service():
     # Mengambil kunci rahasia dari Streamlit Secrets
