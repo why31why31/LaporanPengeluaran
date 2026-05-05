@@ -9,7 +9,7 @@ import os
 
 # --- KONFIGURASI GOOGLE DRIVE ---
 # Folder ID didapat dari URL folder Google Drive Anda
-FOLDER_ID_DRIVE = "https://drive.google.com/drive/folders/1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX?usp=drive_link"
+FOLDER_ID_DRIVE = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX"
 
 def get_drive_service():
     # Mengambil kunci rahasia dari Streamlit Secrets (aman untuk GitHub)
