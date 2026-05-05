@@ -6,12 +6,13 @@ from googleapiclient.discovery import build
 import os
 
 # --- 1. KONFIGURASI GOOGLE SHEETS ---
-# Masukkan ID Spreadsheet Bapak di sini
+# Gunakan ID Spreadsheet Anda
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM" 
-# Pastikan nama tab di Sheets Bapak adalah "Pengeluaran"
+# Pastikan nama tab adalah "Pengeluaran"
 RANGE_NAME = "Pengeluaran!A1" 
 
 def get_sheets_service():
+    # Mengambil kredensial dari Streamlit Secrets
     info = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(info)
     return build('sheets', 'v4', credentials=creds)
@@ -33,7 +34,7 @@ st.title("📊 Rekap Pengeluaran & Nota PDF")
 st.info("Data otomatis tersimpan ke Google Sheets. PDF dapat diunduh setelah simpan.")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama", value="Asep Wahyu")
+    nama = st.text_input("Nama", value="Wahyudi")
     tgl = st.date_input("Tanggal", datetime.now())
     keperluan = st.text_area("Keperluan (Misal: Maintenance Kilian/Romaco)")
     
@@ -57,7 +58,6 @@ if submit:
         with st.spinner("Sedang memproses..."):
             try:
                 total = bensin + toll + makan + parkir
-                # Data untuk Google Sheets
                 data_row = [str(tgl), nama, keperluan, bensin, toll, makan, parkir, total]
                 
                 # A. SIMPAN KE GOOGLE SHEETS
@@ -78,7 +78,7 @@ if submit:
                 pdf.cell(50, 10, "Tanggal", 0); pdf.cell(0, 10, f": {tgl}", 0, ln=True)
                 pdf.cell(50, 10, "Keperluan", 0); pdf.multi_cell(0, 10, f": {keperluan}")
                 pdf.ln(5)
-                pdf.cell(0, 0, "", "T", ln=True) # Garis horizontal
+                pdf.cell(0, 0, "", "T", ln=True) 
                 pdf.ln(5)
                 
                 pdf.cell(50, 10, "Bensin", 0); pdf.cell(0, 10, f": Rp {bensin:,}", 0, ln=True)
@@ -101,12 +101,11 @@ if submit:
                         with open(tmp_path, "wb") as tmp_file:
                             tmp_file.write(f.getbuffer())
                         
-                        # Menyesuaikan gambar ke ukuran kertas A4
                         pdf.image(tmp_path, x=10, w=180) 
                         os.remove(tmp_path)
                 
-                # Konversi PDF ke format yang bisa didownload
-                pdf_output = pdf.output(dest='S').encode('latin-1')
+                # Perbaikan: pdf.output() pada fpdf2 sudah mengembalikan bytes
+                pdf_output = pdf.output() 
                 
                 st.success("✅ Data berhasil masuk ke Google Sheets!")
                 st.balloons()
