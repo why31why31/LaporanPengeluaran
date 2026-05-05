@@ -22,7 +22,7 @@ def upload_to_drive(file_path, file_name):
     
     # Metadata file
     file_metadata = {
-        'name': file_name,
+        'name': Laporann Pengeluaran,
         'parents': [FOLDER_ID_DRIVE]
     }
     
