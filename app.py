@@ -10,9 +10,9 @@ import io
 import os
 
 # --- 1. KONFIGURASI ---
-# Pastikan ID ini sesuai dengan file Google Sheets Bapak
+# ID Spreadsheet Bapak
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-# Masukkan ID Folder Google Drive Bapak di sini
+# Ganti dengan ID Folder Google Drive Bapak (cek di URL folder Drive)
 DRIVE_FOLDER_ID = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" 
 
 def get_gcp_service(service_name, version):
@@ -31,6 +31,15 @@ def append_to_sheets(data):
         body=body
     ).execute()
 
+def get_all_data():
+    service = get_gcp_service('sheets', 'v4')
+    result = service.spreadsheets().values().get(
+        spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:H").execute()
+    values = result.get('values', [])
+    if not values:
+        return pd.DataFrame()
+    return pd.DataFrame(values[1:], columns=values[0])
+
 def upload_to_drive(file_content, file_name):
     service = get_gcp_service('drive', 'v3')
     file_metadata = {
@@ -38,17 +47,24 @@ def upload_to_drive(file_content, file_name):
         'parents': [DRIVE_FOLDER_ID]
     }
     media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype='application/pdf')
-    service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    # Menambahkan supportsAllDrives=True untuk mengatasi masalah kuota Service Account
+    service.files().create(
+        body=file_metadata, 
+        media_body=media, 
+        fields='id',
+        supportsAllDrives=True 
+    ).execute()
 
 # --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Sistem Laporan Wahyudi", layout="centered")
+st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
 
 tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
 
+# --- TAB 1: INPUT HARIAN ---
 with tab1:
     st.header("Input Pengeluaran Baru")
     with st.form("main_form", clear_on_submit=True):
-        nama = st.text_input("Nama Personel", value="Wahyudi")
+        nama = st.text_input("Nama Personel", value="Asep Wahyu")
         tgl = st.date_input("Tanggal Maintenance", datetime.now())
         keperluan = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
         
@@ -72,22 +88,26 @@ with tab1:
         if not keperluan:
             st.error("Kolom Keperluan wajib diisi!")
         else:
-            with st.spinner("Sedang memproses..."):
+            with st.spinner("Menyimpan ke Sheets & Mengunggah ke Drive..."):
                 try:
                     total = bensin + toll + makan + parkir
                     data_row = [str(tgl), nama, keperluan, bensin, toll, makan, parkir, total]
                     
-                    # 1. Simpan ke Google Sheets
+                    # 1. Simpan ke Sheets
                     append_to_sheets(data_row)
                     
-                    # 2. Buat PDF Utama
+                    # 2. Buat PDF dengan Kop Surat & Rincian
                     pdf = FPDF()
                     pdf.add_page()
                     pdf.set_font("Arial", "B", 14)
                     pdf.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
-                    pdf.line(10, 25, 200, 25)
-                    pdf.ln(10)
+                    pdf.set_font("Arial", "", 10)
+                    pdf.cell(0, 5, "Departemen Maintenance Teknik", ln=True, align="C")
+                    pdf.line(10, 30, 200, 30)
+                    pdf.ln(15)
                     
+                    pdf.set_font("Arial", "B", 12)
+                    pdf.cell(0, 10, "Rincian Biaya:", ln=True)
                     pdf.set_font("Arial", "", 12)
                     pdf.cell(50, 8, " - Bensin", 0); pdf.cell(0, 8, f": Rp {bensin:,}", ln=True)
                     pdf.cell(50, 8, " - Toll", 0); pdf.cell(0, 8, f": Rp {toll:,}", ln=True)
@@ -108,7 +128,7 @@ with tab1:
                     
                     pdf_bytes = pdf.output()
                     
-                    # 3. Gabungkan dengan PDF Report (jika ada)
+                    # 3. Gabungkan dengan PDF Report
                     merger = PdfWriter()
                     merger.append(io.BytesIO(pdf_bytes))
                     if report_file:
@@ -128,7 +148,52 @@ with tab1:
                 except Exception as e:
                     st.error(f"Terjadi kesalahan: {e}")
 
+# --- TAB 2: LAPORAN KUMULATIF ---
 with tab2:
-    st.header("Laporan Kumulatif")
-    st.write("Fitur ini menarik data dari Google Sheets.")
-    # Kode laporan kumulatif Bapak bisa ditambahkan di sini nanti
+    st.header("Generate Laporan Per Periode")
+    tgl_range = st.date_input("Pilih Rentang Tanggal", value=(datetime.now(), datetime.now()), key="range_laporan")
+    
+    if len(tgl_range) == 2:
+        tgl_mulai, tgl_selesai = tgl_range
+        if st.button("Siapkan PDF Kumulatif"):
+            df = get_all_data()
+            if not df.empty:
+                df['Tanggal'] = pd.to_datetime(df['Tanggal']).dt.date
+                mask = (df['Tanggal'] >= tgl_mulai) & (df['Tanggal'] <= tgl_selesai)
+                df_filtered = df.loc[mask]
+                
+                if not df_filtered.empty:
+                    st.dataframe(df_filtered)
+                    
+                    pdf_kom = FPDF()
+                    pdf_kom.add_page()
+                    pdf_kom.set_font("Arial", "B", 14)
+                    pdf_kom.cell(0, 10, "REKAP PENGELUARAN KUMULATIF", ln=True, align="C")
+                    pdf_kom.set_font("Arial", "", 10)
+                    pdf_kom.cell(0, 7, f"Periode: {tgl_mulai} s/d {tgl_selesai}", ln=True, align="C")
+                    pdf_kom.ln(10)
+                    
+                    # Header Tabel
+                    pdf_kom.set_font("Arial", "B", 10)
+                    pdf_kom.cell(30, 10, "Tanggal", 1)
+                    pdf_kom.cell(100, 10, "Keperluan", 1)
+                    pdf_kom.cell(30, 10, "Total", 1)
+                    pdf_kom.ln()
+                    
+                    pdf_kom.set_font("Arial", "", 10)
+                    grand_total = 0
+                    for _, row in df_filtered.iterrows():
+                        pdf_kom.cell(30, 10, str(row['Tanggal']), 1)
+                        pdf_kom.cell(100, 10, str(row['Keperluan'])[:50], 1)
+                        val = int(row['Total']) if str(row['Total']).isdigit() else 0
+                        pdf_kom.cell(30, 10, f"{val:,}", 1)
+                        pdf_kom.ln()
+                        grand_total += val
+                    
+                    pdf_kom.set_font("Arial", "B", 10)
+                    pdf_kom.cell(130, 10, "TOTAL KESELURUHAN", 1, 0, 'R')
+                    pdf_kom.cell(30, 10, f"{grand_total:,}", 1)
+                    
+                    st.download_button("📥 Download Rekap Kumulatif", bytes(pdf_kom.output()), f"Rekap_{tgl_mulai}.pdf", "application/pdf")
+                else:
+                    st.warning("Tidak ada data ditemukan pada rentang tersebut.")
