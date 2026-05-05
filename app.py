@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime
 from fpdf import FPDF
-from pypdf import PdfWriter, PdfReader
+from pypdf import PdfWriter
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import io
@@ -27,11 +27,11 @@ def append_to_sheets(data):
     ).execute()
 
 # --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Input Laporan Asep Wahyu", layout="centered")
+st.set_page_config(page_title="Input Laporan Wahyudi", layout="centered")
 st.title("📊 Rekap Pengeluaran & Service Report")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama Personel", value="Asep Wahyu")
+    nama = st.text_input("Nama Personel", value="Wahyudi")
     tgl = st.date_input("Tanggal Maintenance", datetime.now())
     keperluan = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
     
@@ -44,8 +44,6 @@ with st.form("main_form", clear_on_submit=True):
     
     st.divider()
     st.write("📂 **Lampiran Dokumen**")
-    
-    # SLIDER UNTUK MENGATUR UKURAN NOTA (Fitur Baru)
     lebar_nota = st.slider("Atur Lebar Foto Nota di PDF (mm)", 50, 190, 150)
     
     bukti_files = st.file_uploader("📸 Upload Foto Nota (JPG/PNG)", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
@@ -62,15 +60,12 @@ if submit:
             try:
                 total = bensin + toll + makan + parkir
                 data_row = [str(tgl), nama, keperluan, bensin, toll, makan, parkir, total]
-                
-                # A. SIMPAN KE SHEETS
                 append_to_sheets(data_row)
                 
-                # B. BUAT PDF UTAMA
                 pdf_utama = FPDF()
                 pdf_utama.add_page()
                 
-                # Kop Surat Profesional
+                # Kop Surat
                 pdf_utama.set_font("Arial", "B", 14)
                 pdf_utama.cell(0, 7, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
                 pdf_utama.set_font("Arial", "", 10)
@@ -78,36 +73,35 @@ if submit:
                 pdf_utama.line(10, 25, 200, 25)
                 pdf_utama.ln(10)
                 
-                # Ringkasan Biaya
+                # RINCIAN BIAYA (INI BAGIAN YANG DIPERBAIKI)
                 pdf_utama.set_font("Arial", "B", 12)
-                pdf_utama.cell(0, 10, "Ringkasan Pengeluaran:", ln=True)
+                pdf_utama.cell(0, 10, "Rincian Pengeluaran:", ln=True)
                 pdf_utama.set_font("Arial", "", 12)
-                pdf_utama.cell(0, 8, f"- Total Biaya: Rp {total:,}", ln=True)
-                pdf_utama.ln(5)
+                pdf_utama.cell(50, 8, " - Bensin", 0); pdf_utama.cell(0, 8, f": Rp {bensin:,}", ln=True)
+                pdf_utama.cell(50, 8, " - Toll", 0); pdf_utama.cell(0, 8, f": Rp {toll:,}", ln=True)
+                pdf_utama.cell(50, 8, " - Makan", 0); pdf_utama.cell(0, 8, f": Rp {makan:,}", ln=True)
+                pdf_utama.cell(50, 8, " - Parkir/Lainnya", 0); pdf_utama.cell(0, 8, f": Rp {parkir:,}", ln=True)
+                pdf_utama.ln(2)
+                pdf_utama.set_font("Arial", "B", 12)
+                pdf_utama.cell(50, 10, "TOTAL BIAYA", 0); pdf_utama.cell(0, 10, f": Rp {total:,}", ln=True)
+                pdf_utama.ln(10)
                 
-                # Lampiran Foto dengan Ukuran yang Diatur
+                # Lampiran Foto
                 if bukti_files:
                     pdf_utama.add_page()
-                    pdf_utama.set_font("Arial", "B", 12)
                     pdf_utama.cell(0, 10, "LAMPIRAN FOTO NOTA:", ln=True)
-                    pdf_utama.ln(5)
-                    
                     for f in bukti_files:
                         tmp_img = f"tmp_{f.name}"
                         with open(tmp_img, "wb") as img_f:
                             img_f.write(f.getbuffer())
-                        
-                        # MENGGUNAKAN VARIABEL lebar_nota DARI SLIDER
                         pdf_utama.image(tmp_img, x=10, w=lebar_nota)
                         pdf_utama.ln(10)
                         os.remove(tmp_img)
                 
                 pdf_bytes = pdf_utama.output()
                 
-                # C. GABUNGKAN DENGAN PDF REPORT
                 merger = PdfWriter()
                 merger.append(io.BytesIO(pdf_bytes))
-                
                 if report_file:
                     merger.append(io.BytesIO(report_file.read()))
                 
@@ -116,7 +110,7 @@ if submit:
                 
                 st.success("✅ Data tersimpan di Google Sheets!")
                 st.download_button(
-                    label="📥 Download Laporan Akhir",
+                    label="📥 Download Laporan Lengkap",
                     data=final_buffer.getvalue(),
                     file_name=f"Laporan_{nama}_{tgl}.pdf",
                     mime="application/pdf"
