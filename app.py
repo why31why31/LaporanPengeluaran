@@ -42,19 +42,35 @@ def get_all_data():
 
 def upload_to_drive(file_content, file_name):
     service = get_gcp_service('drive', 'v3')
+    
+    # Metadata file
     file_metadata = {
         'name': file_name,
         'parents': [DRIVE_FOLDER_ID]
     }
-    media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype='application/pdf')
-    # Menambahkan supportsAllDrives=True untuk mengatasi masalah kuota Service Account
-    service.files().create(
-        body=file_metadata, 
-        media_body=media, 
-        fields='id',
-        supportsAllDrives=True 
-    ).execute()
-
+    
+    # Upload media
+    media = MediaIoBaseUpload(
+        io.BytesIO(file_content), 
+        mimetype='application/pdf', 
+        resumable=True
+    )
+    
+    # Eksekusi dengan parameter tambahan
+    try:
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id',
+            supportsAllDrives=True,
+            supportsTeamDrives=True # Tambahkan ini juga untuk jaga-jaga
+        ).execute()
+        return file.get('id')
+    except Exception as e:
+        # Jika masih gagal karena kuota, biasanya karena Service Account 
+        # dianggap mencoba menulis ke 'My Drive' miliknya sendiri yang penuh.
+        st.error(f"Gagal Upload ke Drive: {e}")
+        return None
 # --- 2. ANTARMUKA PENGGUNA ---
 st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
 
