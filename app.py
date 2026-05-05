@@ -38,7 +38,7 @@ def append_to_sheets(data):
     ).execute()
 
 # --- 2. ANTARMUKA PENGGUNA (TABS) ---
-st.set_page_config(page_title="Sistem Laporan Wahyudi", layout="centered")
+st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
 
 # Memastikan ada dua Tab: Input Harian dan Laporan Kumulatif
 tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
@@ -47,7 +47,7 @@ tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
 with tab1:
     st.header("Input Pengeluaran Baru")
     with st.form("main_form", clear_on_submit=True):
-        nama_input = st.text_input("Nama Personel", value="Wahyudi")
+        nama_input = st.text_input("Nama Personel", value="Asep Wahyu")
         tgl_input = st.date_input("Tanggal Maintenance", datetime.now())
         keperluan_input = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
         
