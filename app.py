@@ -45,31 +45,30 @@ def upload_to_drive(file_content, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         
-        # Metadata file dengan menyertakan ID folder tujuan
         file_metadata = {
             'name': file_name,
             'parents': [DRIVE_FOLDER_ID]
         }
         
-        # Membungkus konten PDF
+        # Menggunakan io.BytesIO untuk membungkus data PDF
         media = MediaIoBaseUpload(
             io.BytesIO(file_content), 
             mimetype='application/pdf', 
-            resumable=False # Menggunakan multipart upload biasa
+            resumable=False
         )
         
-        # Eksekusi pembuatan file dengan parameter pendukung
+        # Eksekusi pembuatan file dengan instruksi pendukung folder bersama
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
-            supportsAllDrives=True # Mengizinkan penulisan ke folder yang dibagikan
+            supportsAllDrives=True
         ).execute()
         
         return file.get('id')
     except Exception as e:
-        # Menampilkan pesan peringatan namun tidak menghentikan program
-        st.warning(f"Catatan: File tersimpan di Sheets tapi gagal ke Drive. Pesan: {e}")
+        # Menampilkan pesan agar Anda tahu proses gagal, tapi aplikasi tidak berhenti
+        st.warning(f"File gagal diunggah otomatis ke Drive (Error: {e}), silakan download manual.")
         return None
 # --- 2. TAMPILAN UTAMA ---
 st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
