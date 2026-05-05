@@ -1,8 +1,10 @@
 import streamlit as st
 from datetime import datetime
 from fpdf import FPDF
+from pypdf import PdfWriter, PdfReader
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+import io
 import os
 
 # --- 1. KONFIGURASI GOOGLE SHEETS ---
@@ -25,31 +27,34 @@ def append_to_sheets(data):
     ).execute()
 
 # --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Input Pengeluaran Wahyudi", layout="centered")
-st.title("📊 Rekap Pengeluaran & Nota PDF")
+st.set_page_config(page_title="Input Pengeluaran & Report", layout="centered")
+st.title("📊 Rekap Pengeluaran & Laporan Servis")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama", value="Wahyudi")
-    tgl = st.date_input("Tanggal", datetime.now())
-    keperluan = st.text_area("Keperluan (Misal: Maintenance Kilian/Romaco)")
+    nama = st.text_input("Nama Personel", value="Wahyudi")
+    tgl = st.date_input("Tanggal Maintenance", datetime.now())
+    keperluan = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
     
     st.divider()
     c1, c2 = st.columns(2)
     bensin = c1.number_input("Bensin (Rp)", min_value=0, step=1000)
     toll = c2.number_input("Toll (Rp)", min_value=0, step=1000)
     makan = c1.number_input("Makan (Rp)", min_value=0, step=1000)
-    parkir = c2.number_input("Parkir/Lainnya (Rp)", min_value=0, step=1000)
+    parkir = c2.number_input("Parkir (Rp)", min_value=0, step=1000)
     
     st.divider()
-    bukti_files = st.file_uploader("📸 Lampirkan Foto Nota", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
-    submit = st.form_submit_button("Simpan & Buat PDF")
+    st.write("📂 **Lampiran Dokumen**")
+    bukti_files = st.file_uploader("📸 Upload Foto Nota (JPG/PNG)", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
+    report_file = st.file_uploader("📄 Upload Service Report (PDF)", type=['pdf'])
+    
+    submit = st.form_submit_button("Simpan Data & Gabung PDF")
 
 # --- 3. PROSES DATA ---
 if submit:
     if not keperluan:
-        st.error("Kolom Keperluan wajib diisi!")
+        st.error("Detail pekerjaan wajib diisi!")
     else:
-        with st.spinner("Menyimpan ke Sheets dan menyusun PDF..."):
+        with st.spinner("Memproses data dan menggabungkan dokumen..."):
             try:
                 total = bensin + toll + makan + parkir
                 data_row = [str(tgl), nama, keperluan, bensin, toll, makan, parkir, total]
@@ -57,69 +62,61 @@ if submit:
                 # A. SIMPAN KE GOOGLE SHEETS
                 append_to_sheets(data_row)
                 
-                # B. BUAT PDF DENGAN KOP SURAT
-                pdf = FPDF()
-                pdf.add_page()
+                # B. BUAT HALAMAN PERTAMA (KOP & RINCIAN)
+                pdf_utama = FPDF()
+                pdf_utama.add_page()
                 
-                # --- BAGIAN KOP SURAT ---
-                pdf.set_font("Arial", "B", 14)
-                pdf.cell(0, 7, "NAMA PERUSAHAAN ANDA", ln=True, align="C") # Ganti dengan nama kantor
-                pdf.set_font("Arial", "", 10)
-                pdf.cell(0, 5, "Alamat Kantor: Jl. Industri No. 123, Kawasan Farmasi", ln=True, align="C")
-                pdf.cell(0, 5, "Telp: (021) 1234567 | Email: maintenance@company.com", ln=True, align="C")
+                # Kop Surat
+                pdf_utama.set_font("Arial", "B", 14)
+                pdf_utama.cell(0, 7, "LAPORAN MAINTENANCE & PENGELUARAN", ln=True, align="C")
+                pdf_utama.set_font("Arial", "", 10)
+                pdf_utama.cell(0, 5, f"Teknisi: {nama} | Tanggal: {tgl}", ln=True, align="C")
+                pdf_utama.set_line_width(0.5)
+                pdf_utama.line(10, 25, 200, 25)
+                pdf_utama.ln(10)
                 
-                # Garis Kop Surat (Tebal)
-                pdf.set_line_width(1)
-                pdf.line(10, 32, 200, 32)
-                pdf.set_line_width(0.2) # Kembalikan ke garis normal
-                pdf.ln(10)
+                # Detail Biaya
+                pdf_utama.set_font("Arial", "B", 12)
+                pdf_utama.cell(0, 10, "Rincian Biaya Lapangan:", ln=True)
+                pdf_utama.set_font("Arial", "", 12)
+                pdf_utama.cell(50, 8, f"Bensin: Rp {bensin:,}", ln=True)
+                pdf_utama.cell(50, 8, f"Toll: Rp {toll:,}", ln=True)
+                pdf_utama.cell(50, 8, f"Makan: Rp {makan:,}", ln=True)
+                pdf_utama.cell(50, 8, f"Parkir: Rp {parkir:,}", ln=True)
+                pdf_utama.set_font("Arial", "B", 12)
+                pdf_utama.cell(50, 10, f"TOTAL: Rp {total:,}", ln=True)
                 
-                # Judul Laporan
-                pdf.set_font("Arial", "B", 14)
-                pdf.cell(0, 10, "LAPORAN PENGELUARAN LAPANGAN", ln=True, align="C")
-                pdf.ln(5)
-                
-                # Isi Data
-                pdf.set_font("Arial", "", 12)
-                pdf.cell(50, 10, "Nama Personel", 0); pdf.cell(0, 10, f": {nama}", 0, ln=True)
-                pdf.cell(50, 10, "Tanggal Input", 0); pdf.cell(0, 10, f": {tgl}", 0, ln=True)
-                pdf.cell(50, 10, "Keperluan", 0); pdf.multi_cell(0, 10, f": {keperluan}")
-                pdf.ln(5)
-                
-                # Tabel Biaya
-                pdf.set_font("Arial", "B", 12)
-                pdf.cell(50, 10, "Rincian Biaya:", ln=True)
-                pdf.set_font("Arial", "", 12)
-                
-                pdf.cell(50, 10, " - Bensin", 0); pdf.cell(0, 10, f": Rp {bensin:,}", 0, ln=True)
-                pdf.cell(50, 10, " - Toll", 0); pdf.cell(0, 10, f": Rp {toll:,}", 0, ln=True)
-                pdf.cell(50, 10, " - Makan", 0); pdf.cell(0, 10, f": Rp {makan:,}", 0, ln=True)
-                pdf.cell(50, 10, " - Parkir/Lainnya", 0); pdf.cell(0, 10, f": Rp {parkir:,}", 0, ln=True)
-                
-                pdf.set_font("Arial", "B", 12)
-                pdf.cell(50, 10, "TOTAL", 0); pdf.cell(0, 10, f": Rp {total:,}", 0, ln=True)
-                
-                # C. TAMBAHKAN FOTO KE HALAMAN BARU
+                # Lampiran Foto
                 if bukti_files:
+                    pdf_utama.add_page()
+                    pdf_utama.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
                     for f in bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, f"LAMPIRAN BUKTI: {f.name}", ln=True)
-                        tmp_path = f"temp_{f.name}"
-                        with open(tmp_path, "wb") as tmp_file:
-                            tmp_file.write(f.getbuffer())
-                        pdf.image(tmp_path, x=10, w=180) 
-                        os.remove(tmp_path)
+                        tmp_img = f"tmp_{f.name}"
+                        with open(tmp_img, "wb") as img_f:
+                            img_f.write(f.getbuffer())
+                        pdf_utama.image(tmp_img, x=10, w=150)
+                        os.remove(tmp_img)
                 
-                pdf_output = bytes(pdf.output()) 
+                # Simpan PDF Utama ke Buffer
+                pdf_utama_bytes = pdf_utama.output()
                 
-                st.success("✅ Data tersimpan di Google Sheets!")
-                st.balloons()
+                # C. PENGGABUNGAN DENGAN SERVICE REPORT PDF
+                merger = PdfWriter()
+                merger.append(io.BytesIO(pdf_utama_bytes))
                 
+                if report_file:
+                    merger.append(io.BytesIO(report_file.read()))
+                
+                # Hasil Akhir
+                final_buffer = io.BytesIO()
+                merger.write(final_buffer)
+                final_pdf = final_buffer.getvalue()
+                
+                st.success("✅ Data tersimpan di Google Sheets dan PDF berhasil digabung!")
                 st.download_button(
-                    label="📥 Download PDF dengan Kop Surat",
-                    data=pdf_output,
-                    file_name=f"Laporan_{nama}_{tgl}.pdf",
+                    label="📥 Download Laporan Lengkap (PDF)",
+                    data=final_pdf,
+                    file_name=f"Laporan_Lengkap_{nama}_{tgl}.pdf",
                     mime="application/pdf"
                 )
                 
