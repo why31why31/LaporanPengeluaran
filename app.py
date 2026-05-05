@@ -17,7 +17,7 @@ import os
 
 # --- 1. KONFIGURASI ---
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-DRIVE_FOLDER_ID = "MASUKKAN_ID_FOLDER_DRIVE_ANDA" # Ganti dengan ID Folder Drive Bapak
+DRIVE_FOLDER_ID = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" # Ganti dengan ID Folder Drive Bapak
 
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
@@ -41,13 +41,13 @@ def upload_to_drive(file_content, file_name):
     service.files().create(body=file_metadata, media_body=media, fields='id').execute()
 
 # --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Sistem Laporan Wahyudi", layout="centered")
+st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
 tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
 
 with tab1:
     st.header("Input & Simpan ke Drive")
     with st.form("main_form", clear_on_submit=True):
-        nama = st.text_input("Nama Personel", value="Wahyudi")
+        nama = st.text_input("Nama Personel", value="Asep Wahyu")
         tgl = st.date_input("Tanggal", datetime.now())
         keperluan = st.text_area("Detail Pekerjaan")
         
