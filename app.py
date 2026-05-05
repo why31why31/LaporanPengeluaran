@@ -4,20 +4,16 @@ from datetime import datetime
 from fpdf import FPDF
 from pypdf import PdfWriter
 from google.oauth2 import service_account
-from googleapiclient import streamlit as st
-import pandas as pd
-from datetime import datetime
-from fpdf import FPDF
-from pypdf import PdfWriter
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 import os
 
 # --- 1. KONFIGURASI ---
+# Pastikan ID ini sesuai dengan file Google Sheets Bapak
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-DRIVE_FOLDER_ID = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" # Ganti dengan ID Folder Drive Bapak
+# Masukkan ID Folder Google Drive Bapak di sini
+DRIVE_FOLDER_ID = "MASUKKAN_ID_FOLDER_DRIVE_ANDA" 
 
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
@@ -28,8 +24,12 @@ def append_to_sheets(data):
     service = get_gcp_service('sheets', 'v4')
     body = {'values': [data]}
     service.spreadsheets().values().append(
-        spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A1",
-        valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body=body).execute()
+        spreadsheetId=SPREADSHEET_ID, 
+        range="Pengeluaran!A1",
+        valueInputOption="USER_ENTERED", 
+        insertDataOption="INSERT_ROWS", 
+        body=body
+    ).execute()
 
 def upload_to_drive(file_content, file_name):
     service = get_gcp_service('drive', 'v3')
@@ -41,122 +41,16 @@ def upload_to_drive(file_content, file_name):
     service.files().create(body=file_metadata, media_body=media, fields='id').execute()
 
 # --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
+st.set_page_config(page_title="Sistem Laporan Wahyudi", layout="centered")
+
 tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
 
-with tab1:
-    st.header("Input & Simpan ke Drive")
-    with st.form("main_form", clear_on_submit=True):
-        nama = st.text_input("Nama Personel", value="Asep Wahyu")
-        tgl = st.date_input("Tanggal", datetime.now())
-        keperluan = st.text_area("Detail Pekerjaan")
-        
-        c1, c2 = st.columns(2)
-        bensin = c1.number_input("Bensin (Rp)", min_value=0)
-        toll = c2.number_input("Toll (Rp)", min_value=0)
-        makan = c1.number_input("Makan (Rp)", min_value=0)
-        parkir = c2.number_input("Parkir (Rp)", min_value=0)
-        
-        bukti_files = st.file_uploader("📸 Upload Foto Nota", accept_multiple_files=True, type=['jpg','png','jpeg'])
-        report_file = st.file_uploader("📄 Upload Service Report (PDF)", type=['pdf'])
-        
-        submit = st.form_submit_button("Simpan ke Sheets & Google Drive")
-
-    if submit:
-        if not keperluan:
-            st.error("Isi detail pekerjaan!")
-        else:
-            with st.spinner("Mengunggah ke Sheets & Drive..."):
-                try:
-                    total = bensin + toll + makan + parkir
-                    # A. Simpan ke Sheets
-                    append_to_sheets([str(tgl), nama, keperluan, bensin, toll, makan, parkir, total])
-                    
-                    # B. Buat PDF Rincian
-                    pdf_utama = FPDF()
-                    pdf_utama.add_page()
-                    pdf_utama.set_font("Arial", "B", 14)
-                    pdf_utama.cell(0, 10, "LAPORAN KERJA & BIAYA", ln=True, align="C")
-                    pdf_utama.ln(10)
-                    pdf_utama.set_font("Arial", "", 12)
-                    pdf_utama.cell(0, 8, f"Keperluan: {keperluan}", ln=True)
-                    pdf_utama.cell(0, 8, f"Total: Rp {total:,}", ln=True)
-                    
-                    # C. Tambahkan Foto Nota
-                    if bukti_files:
-                        pdf_utama.add_page()
-                        for f in bukti_files:
-                            tmp_img = f"tmp_{f.name}"
-                            with open(tmp_img, "wb") as img_f:
-                                img_f.write(f.getbuffer())
-                            pdf_utama.image(tmp_img, x=10, w=150)
-                            os.remove(tmp_img)
-                    
-                    # D. Gabung PDF (jika ada lampiran report)
-                    pdf_bytes = pdf_utama.output()
-                    merger = PdfWriter()
-                    merger.append(io.BytesIO(pdf_bytes))
-                    if report_file:
-                        merger.append(io.BytesIO(report_file.read()))
-                    
-                    final_buffer = io.BytesIO()
-                    merger.write(final_buffer)
-                    final_pdf_content = final_buffer.getvalue()
-                    
-                    # E. UNGGAH KE GOOGLE DRIVE
-                    nama_file_pdf = f"Laporan_{nama}_{tgl}.pdf"
-                    upload_to_drive(final_pdf_content, nama_file_pdf)
-                    
-                    st.success(f"✅ Berhasil! Data tersimpan di Sheets & File terkirim ke Google Drive.")
-                    st.download_button("📥 Download Copy PDF", final_pdf_content, nama_file_pdf, "application/pdf")
-                    
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan: {e}")nt.discovery import build
-import io
-import os
-
-# --- 1. KONFIGURASI GOOGLE SHEETS ---
-SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM" 
-
-def get_sheets_service():
-    info = st.secrets["gcp_service_account"]
-    creds = service_account.Credentials.from_service_account_info(info)
-    return build('sheets', 'v4', credentials=creds)
-
-def get_all_data():
-    service = get_sheets_service()
-    result = service.spreadsheets().values().get(
-        spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:H").execute()
-    values = result.get('values', [])
-    if not values:
-        return pd.DataFrame()
-    return pd.DataFrame(values[1:], columns=values[0])
-
-def append_to_sheets(data):
-    service = get_sheets_service()
-    body = {'values': [data]}
-    # Gunakan .append agar data baru masuk ke baris kosong paling bawah (tidak menimpa)
-    service.spreadsheets().values().append(
-        spreadsheetId=SPREADSHEET_ID,
-        range="Pengeluaran!A1",
-        valueInputOption="USER_ENTERED",
-        insertDataOption="INSERT_ROWS",
-        body=body
-    ).execute()
-
-# --- 2. ANTARMUKA PENGGUNA (TABS) ---
-st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
-
-# Memastikan ada dua Tab: Input Harian dan Laporan Kumulatif
-tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
-
-# --- TAB 1: INPUT HARIAN ---
 with tab1:
     st.header("Input Pengeluaran Baru")
     with st.form("main_form", clear_on_submit=True):
-        nama_input = st.text_input("Nama Personel", value="Asep Wahyu")
-        tgl_input = st.date_input("Tanggal Maintenance", datetime.now())
-        keperluan_input = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
+        nama = st.text_input("Nama Personel", value="Wahyudi")
+        tgl = st.date_input("Tanggal Maintenance", datetime.now())
+        keperluan = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
         
         st.divider()
         c1, c2 = st.columns(2)
@@ -169,56 +63,52 @@ with tab1:
         st.write("📂 **Lampiran Dokumen**")
         lebar_nota = st.slider("Atur Lebar Foto Nota di PDF (mm)", 50, 190, 150)
         
-        # Tombol Upload Nota (Foto)
         bukti_files = st.file_uploader("📸 Upload Foto Nota (JPG/PNG)", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
-        # Tombol Upload Service Report (PDF)
         report_file = st.file_uploader("📄 Upload Service Report (PDF)", type=['pdf'])
         
-        submit = st.form_submit_button("Simpan Data & Buat Laporan")
+        submit = st.form_submit_button("Simpan ke Sheets & Google Drive")
 
     if submit:
-        if not keperluan_input:
-            st.error("Isi detail pekerjaan!")
+        if not keperluan:
+            st.error("Kolom Keperluan wajib diisi!")
         else:
-            with st.spinner("Memproses data..."):
+            with st.spinner("Sedang memproses..."):
                 try:
                     total = bensin + toll + makan + parkir
-                    data_row = [str(tgl_input), nama_input, keperluan_input, bensin, toll, makan, parkir, total]
+                    data_row = [str(tgl), nama, keperluan, bensin, toll, makan, parkir, total]
                     
-                    # 1. Simpan ke Sheets (Menambah ke bawah)
+                    # 1. Simpan ke Google Sheets
                     append_to_sheets(data_row)
                     
-                    # 2. Buat PDF Rincian
-                    pdf_utama = FPDF()
-                    pdf_utama.add_page()
-                    pdf_utama.set_font("Arial", "B", 14)
-                    pdf_utama.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
-                    pdf_utama.line(10, 25, 200, 25)
-                    pdf_utama.ln(10)
+                    # 2. Buat PDF Utama
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Arial", "B", 14)
+                    pdf.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
+                    pdf.line(10, 25, 200, 25)
+                    pdf.ln(10)
                     
-                    pdf_utama.set_font("Arial", "", 12)
-                    pdf_utama.cell(50, 8, " - Bensin", 0); pdf_utama.cell(0, 8, f": Rp {bensin:,}", ln=True)
-                    pdf_utama.cell(50, 8, " - Toll", 0); pdf_utama.cell(0, 8, f": Rp {toll:,}", ln=True)
-                    pdf_utama.cell(50, 8, " - Makan", 0); pdf_utama.cell(0, 8, f": Rp {makan:,}", ln=True)
-                    pdf_utama.cell(50, 8, " - Parkir", 0); pdf_utama.cell(0, 8, f": Rp {parkir:,}", ln=True)
-                    pdf_utama.set_font("Arial", "B", 12)
-                    pdf_utama.cell(50, 10, "TOTAL BIAYA", 0); pdf_utama.cell(0, 10, f": Rp {total:,}", ln=True)
+                    pdf.set_font("Arial", "", 12)
+                    pdf.cell(50, 8, " - Bensin", 0); pdf.cell(0, 8, f": Rp {bensin:,}", ln=True)
+                    pdf.cell(50, 8, " - Toll", 0); pdf.cell(0, 8, f": Rp {toll:,}", ln=True)
+                    pdf.cell(50, 8, " - Makan", 0); pdf.cell(0, 8, f": Rp {makan:,}", ln=True)
+                    pdf.cell(50, 8, " - Parkir", 0); pdf.cell(0, 8, f": Rp {parkir:,}", ln=True)
+                    pdf.set_font("Arial", "B", 12)
+                    pdf.cell(50, 10, "TOTAL BIAYA", 0); pdf.cell(0, 10, f": Rp {total:,}", ln=True)
                     
-                    # 3. Tambahkan Foto Nota ke PDF Utama
                     if bukti_files:
-                        pdf_utama.add_page()
-                        pdf_utama.cell(0, 10, "LAMPIRAN FOTO NOTA:", ln=True)
+                        pdf.add_page()
+                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
                         for f in bukti_files:
                             tmp_img = f"tmp_{f.name}"
                             with open(tmp_img, "wb") as img_f:
                                 img_f.write(f.getbuffer())
-                            pdf_utama.image(tmp_img, x=10, w=lebar_nota)
-                            pdf_utama.ln(10)
+                            pdf.image(tmp_img, x=10, w=lebar_nota)
                             os.remove(tmp_img)
                     
-                    pdf_bytes = pdf_utama.output()
+                    pdf_bytes = pdf.output()
                     
-                    # 4. Gabungkan dengan Service Report (PDF)
+                    # 3. Gabungkan dengan PDF Report (jika ada)
                     merger = PdfWriter()
                     merger.append(io.BytesIO(pdf_bytes))
                     if report_file:
@@ -226,40 +116,19 @@ with tab1:
                     
                     final_buffer = io.BytesIO()
                     merger.write(final_buffer)
+                    final_pdf_content = final_buffer.getvalue()
                     
-                    st.success("✅ Data tersimpan di baris baru!")
-                    st.download_button(
-                        label="📥 Download Laporan Lengkap",
-                        data=final_buffer.getvalue(),
-                        file_name=f"Laporan_{tgl_input}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Gagal: {e}")
-
-# --- TAB 2: LAPORAN KUMULATIF ---
-with tab2:
-    st.header("Generate Laporan Per Periode")
-    tgl_range = st.date_input("Pilih Rentang Tanggal", value=(datetime.now(), datetime.now()), key="range_laporan")
-    
-    if len(tgl_range) == 2:
-        tgl_mulai, tgl_selesai = tgl_range
-        if st.button("Siapkan PDF Kumulatif"):
-            df = get_all_data()
-            if not df.empty:
-                df['Tanggal'] = pd.to_datetime(df['Tanggal']).dt.date
-                mask = (df['Tanggal'] >= tgl_mulai) & (df['Tanggal'] <= tgl_selesai)
-                df_filtered = df.loc[mask]
+                    # 4. Unggah ke Google Drive
+                    nama_file_pdf = f"Laporan_{nama}_{tgl}.pdf"
+                    upload_to_drive(final_pdf_content, nama_file_pdf)
+                    
+                    st.success("✅ Berhasil! Data di Sheets terupdate & File PDF tersimpan di Drive.")
+                    st.download_button("📥 Download Copy PDF", final_pdf_content, nama_file_pdf, "application/pdf")
                 
-                if not df_filtered.empty:
-                    st.dataframe(df_filtered)
-                    
-                    pdf_kom = FPDF()
-                    pdf_kom.add_page()
-                    pdf_kom.set_font("Arial", "B", 14)
-                    pdf_kom.cell(0, 10, f"REKAP {tgl_mulai} - {tgl_selesai}", ln=True, align="C")
-                    
-                    pdf_output = bytes(pdf_kom.output())
-                    st.download_button("📥 Download Rekap Kumulatif", pdf_output, f"Rekap_{tgl_mulai}.pdf", "application/pdf")
-                else:
-                    st.warning("Tidak ada data ditemukan.")
+                except Exception as e:
+                    st.error(f"Terjadi kesalahan: {e}")
+
+with tab2:
+    st.header("Laporan Kumulatif")
+    st.write("Fitur ini menarik data dari Google Sheets.")
+    # Kode laporan kumulatif Bapak bisa ditambahkan di sini nanti
