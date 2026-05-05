@@ -44,25 +44,33 @@ def get_all_data():
 def upload_to_drive(file_content, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
-        file_metadata = {'name': file_name, 'parents': [DRIVE_FOLDER_ID]}
-        media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype='application/pdf', resumable=False)
         
-        # Buat file
-        file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
-        file_id = file.get('id')
+        # Metadata file dengan menyertakan ID folder tujuan
+        file_metadata = {
+            'name': file_name,
+            'parents': [DRIVE_FOLDER_ID]
+        }
         
-        # Coba pindahkan kepemilikan agar tidak memakan kuota Service Account
-        try:
-            permission = {'type': 'user', 'role': 'owner', 'emailAddress': EMAIL_OWNER}
-            service.permissions().create(fileId=file_id, body=permission, transferOwnership=True, supportsAllDrives=True).execute()
-        except:
-            # Jika gagal transfer owner (biasanya karena kebijakan admin), file tetap ada di folder
-            pass
-        return file_id
+        # Membungkus konten PDF
+        media = MediaIoBaseUpload(
+            io.BytesIO(file_content), 
+            mimetype='application/pdf', 
+            resumable=False # Menggunakan multipart upload biasa
+        )
+        
+        # Eksekusi pembuatan file dengan parameter pendukung
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id',
+            supportsAllDrives=True # Mengizinkan penulisan ke folder yang dibagikan
+        ).execute()
+        
+        return file.get('id')
     except Exception as e:
-        st.warning(f"File gagal diunggah otomatis ke Drive (Error: {e}), silakan download manual di bawah.")
+        # Menampilkan pesan peringatan namun tidak menghentikan program
+        st.warning(f"Catatan: File tersimpan di Sheets tapi gagal ke Drive. Pesan: {e}")
         return None
-
 # --- 2. TAMPILAN UTAMA ---
 st.set_page_config(page_title="Sistem Laporan Asep Wahyu", layout="centered")
 
