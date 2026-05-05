@@ -26,17 +26,34 @@ def upload_to_drive(file_path, file_name):
         'parents': [FOLDER_ID_DRIVE]
     }
     
+    # Media upload
     media = MediaFileUpload(file_path, resumable=True)
     
-    # Proses Upload
+    # PROSES UPLOAD
+    # Kita mengunggah file ke folder yang sudah Anda bagikan sebelumnya
     file = service.files().create(
         body=file_metadata,
         media_body=media,
         fields='id'
     ).execute()
     
-    return file.get('id')
+    file_id = file.get('id')
 
+    # MEMBERI IZIN AKSES (Agar file terbaca di kuota pemilik folder)
+    # Ganti 'email_pribadi_anda@gmail.com' dengan email Gmail Anda
+    user_permission = {
+        'type': 'user',
+        'role': 'writer',
+        'emailAddress': 'email_pribadi_anda@gmail.com' 
+    }
+    
+    service.permissions().create(
+        fileId=file_id,
+        body=user_permission,
+        fields='id'
+    ).execute()
+
+    return file_id
 # --- 2. ANTARMUKA PENGGUNA (UI) ---
 st.set_page_config(page_title="Input Pengeluaran Wahyudi", layout="centered")
 
