@@ -1,72 +1,41 @@
 import streamlit as st
+import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 import os
 
-# --- 1. KONFIGURASI ---
-# Gunakan ID folder Anda (Pastikan Service Account sudah jadi EDITOR di folder ini)
-FOLDER_ID_DRIVE = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" 
+# --- KONFIGURASI GOOGLE SHEETS ---
+# Masukkan ID Spreadsheet yang Anda buat tadi
+SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
+RANGE_NAME = "Sheet1!A1" # Nama sheet dan sel mulai
 
-# MASUKKAN EMAIL GMAIL PRIBADI ANDA DI SINI (Penting!)
-EMAIL_PEMILIK_DRIVE = "why31why31@gmail.com" # <--- GANTI INI
-
-def get_drive_service():
+def get_sheets_service():
+    # Mengambil kunci rahasia dari Streamlit Secrets
     info = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(info)
-    return build('drive', 'v3', credentials=creds)
+    return build('sheets', 'v4', credentials=creds)
 
-def upload_to_drive(file_path, file_name):
-    service = get_drive_service()
-    
-    # Metadata file
-    file_metadata = {
-        'name': file_name,
-        'parents': [FOLDER_ID_DRIVE]
-    }
-    
-    # Gunakan resumable upload untuk stabilitas
-    media = MediaFileUpload(file_path, mimetype='application/pdf', resumable=True)
-    
-    # PROSES UPLOAD
-    # Jika gagal di sini, berarti izin folder belum diberikan ke Service Account
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id'
+def append_to_sheets(data):
+    service = get_sheets_service()
+    body = {'values': [data]}
+    service.spreadsheets().values().append(
+        spreadsheetId=SPREADSHEET_ID,
+        range=RANGE_NAME,
+        valueInputOption="USER_ENTERED",
+        body=body
     ).execute()
-    
-    file_id = file.get('id')
 
-    # BERIKAN IZIN KE EMAIL ANDA (Agar file masuk ke jatah penyimpanan Anda)
-    try:
-        permission = {
-            'type': 'user',
-            'role': 'writer',
-            'emailAddress': EMAIL_PEMILIK_DRIVE
-        }
-        service.permissions().create(
-            fileId=file_id,
-            body=permission,
-            fields='id'
-        ).execute()
-    except:
-        pass # Tetap lanjut jika file sudah terlanjur naik
+# --- ANTARMUKA PENGGUNA (UI) ---
+st.set_page_config(page_title="Sistem Input Wahyudi", layout="centered")
+st.title("📊 Rekap Pengeluaran Otomatis")
+st.write("Data akan langsung masuk ke Google Sheets & PDF bisa di-download.")
 
-    return file_id
-
-# --- 2. ANTARMUKA (UI) ---
-st.set_page_config(page_title="Form Pengeluaran Wahyudi", layout="centered")
-
-st.title("📂 Input Pengeluaran & Nota")
-st.write("Laporan otomatis dikirim ke Google Drive dalam format PDF.")
-
-with st.form("input_form", clear_on_submit=True):
+with st.form("main_form", clear_on_submit=True):
     nama = st.text_input("Nama", value="Wahyudi")
     tgl = st.date_input("Tanggal", datetime.now())
-    keperluan = st.text_area("Keperluan Kantor")
+    keperluan = st.text_area("Keperluan (Maintenance/Lainnya)")
     
     st.divider()
     c1, c2 = st.columns(2)
@@ -75,63 +44,32 @@ with st.form("input_form", clear_on_submit=True):
     makan = c1.number_input("Makan (Rp)", min_value=0, step=1000)
     parkir = c2.number_input("Parkir (Rp)", min_value=0, step=1000)
     
-    st.divider()
-    bukti_files = st.file_uploader("📸 Foto Nota (Pilih dari Galeri/Kamera)", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
-    
-    submit = st.form_submit_button("Kirim ke Google Drive")
+    bukti_files = st.file_uploader("📸 Foto Nota (PDF)", accept_multiple_files=True, type=['jpg','png','jpeg'])
+    submit = st.form_submit_button("Simpan Data")
 
-# --- 3. PROSES DATA ---
 if submit:
     if not keperluan:
-        st.error("Mohon isi bagian Keperluan!")
+        st.error("Isi Keperluan!")
     else:
-        with st.spinner("Sedang memproses..."):
-            try:
-                total = bensin + toll + makan + parkir
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                pdf_name = f"Laporan_{nama}_{ts}.pdf"
+        try:
+            total = bensin + toll + makan + parkir
+            data_row = [str(tgl), nama, keperluan, bensin, toll, makan, parkir, total]
+            
+            # 1. Simpan ke Google Sheets (Data Terkumpul Otomatis)
+            append_to_sheets(data_row)
+            
+            # 2. Buat PDF (Untuk arsip jika butuh)
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(0, 10, "NOTA PENGELUARAN", ln=True, align="C")
+            pdf.output("temp_nota.pdf")
+            
+            st.success("✅ Data tersimpan di Google Sheets!")
+            st.balloons()
+            
+            with open("temp_nota.pdf", "rb") as f:
+                st.download_button("📥 Download PDF Nota", f, "Nota.pdf")
                 
-                # Buat PDF
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", "B", 16)
-                pdf.cell(0, 10, "NOTA PENGELUARAN KANTOR", ln=True, align="C")
-                pdf.ln(10)
-                
-                pdf.set_font("Arial", "", 12)
-                data_list = [
-                    ("Nama", nama), ("Tanggal", str(tgl)), ("Keperluan", keperluan),
-                    ("-" * 30, "-" * 30),
-                    ("Bensin", f"Rp {bensin:,}"), ("Toll", f"Rp {toll:,}"),
-                    ("Makan", f"Rp {makan:,}"), ("Parkir", f"Rp {parkir:,}"),
-                    ("TOTAL", f"Rp {total:,}")
-                ]
-                
-                for label, val in data_list:
-                    pdf.cell(50, 10, label, 0)
-                    pdf.cell(0, 10, f": {val}", 0, ln=True)
-                
-                # Tambahkan Foto
-                if bukti_files:
-                    pdf.add_page()
-                    pdf.set_font("Arial", "B", 14)
-                    pdf.cell(0, 10, "LAMPIRAN BUKTI", ln=True)
-                    for f in bukti_files:
-                        tmp = f"tmp_{f.name}"
-                        with open(tmp, "wb") as file_tmp:
-                            file_tmp.write(f.getbuffer())
-                        pdf.image(tmp, x=10, w=100)
-                        pdf.ln(5)
-                        os.remove(tmp)
-                
-                pdf.output(pdf_name)
-                
-                # Jalankan fungsi upload
-                upload_to_drive(pdf_name, pdf_name)
-                
-                st.success(f"✅ Berhasil diunggah ke Drive!")
-                st.balloons()
-                os.remove(pdf_name)
-                
-            except Exception as e:
-                st.error(f"Gagal: {e}")
+        except Exception as e:
+            st.error(f"Gagal: {e}")
