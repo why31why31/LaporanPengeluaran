@@ -1,0 +1,6 @@
+streamlit
+pandas
+openpyxl
+fpdf2
+google-api-python-client
+google-auth
