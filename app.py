@@ -7,10 +7,11 @@ from googleapiclient.http import MediaFileUpload
 import os
 
 # --- 1. KONFIGURASI ---
-# Ganti dengan ID folder Google Drive Anda
+# Gunakan ID folder Anda (Pastikan Service Account sudah jadi EDITOR di folder ini)
 FOLDER_ID_DRIVE = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" 
-# Ganti dengan email Gmail pribadi Anda
-EMAIL_PRIBADI = "why31why31@gmail.com" 
+
+# MASUKKAN EMAIL GMAIL PRIBADI ANDA DI SINI
+EMAIL_PEMILIK_DRIVE = "why31why31@gmail.com"
 
 def get_drive_service():
     info = st.secrets["gcp_service_account"]
@@ -28,7 +29,7 @@ def upload_to_drive(file_path, file_name):
     
     media = MediaFileUpload(file_path, resumable=True)
     
-    # Upload File
+    # PROSES UPLOAD
     file = service.files().create(
         body=file_metadata,
         media_body=media,
@@ -37,24 +38,29 @@ def upload_to_drive(file_path, file_name):
     
     file_id = file.get('id')
 
-    # BERIKAN IZIN KE EMAIL PRIBADI (Penting untuk kuota)
-    user_permission = {
-        'type': 'user',
-        'role': 'writer',
-        'emailAddress': EMAIL_PRIBADI
-    }
-    service.permissions().create(
-        fileId=file_id,
-        body=user_permission,
-        fields='id'
-    ).execute()
+    # --- BAGIAN PENTING: MENGATASI QUOTA ERROR ---
+    # Kita tambahkan izin 'writer' ke email Anda agar file 
+    # langsung masuk ke jatah penyimpanan (kuota) akun Anda.
+    try:
+        permission = {
+            'type': 'user',
+            'role': 'writer',
+            'emailAddress': EMAIL_PEMILIK_DRIVE
+        }
+        service.permissions().create(
+            fileId=file_id,
+            body=permission,
+            fields='id'
+        ).execute()
+    except Exception as e:
+        st.warning(f"File terunggah, tapi gagal menyambungkan kuota: {e}")
 
     return file_id
 
 # --- 2. ANTARMUKA (UI) ---
-st.set_page_config(page_title="Input Pengeluaran Lapangan", layout="centered")
+st.set_page_config(page_title="Form Pengeluaran Lapangan", layout="centered")
 
-st.title("📂 Form Pengeluaran & Nota")
+st.title("📂 Input Pengeluaran & Nota")
 st.write("Laporan otomatis dikirim ke Google Drive dalam format PDF.")
 
 with st.form("input_form", clear_on_submit=True):
@@ -79,7 +85,7 @@ if submit:
     if not keperluan:
         st.error("Mohon isi bagian Keperluan!")
     else:
-        with st.spinner("Sedang memproses..."):
+        with st.spinner("Sedang memproses laporan..."):
             try:
                 total = bensin + toll + makan + parkir
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -105,7 +111,7 @@ if submit:
                     pdf.cell(50, 10, label, 0)
                     pdf.cell(0, 10, f": {val}", 0, ln=True)
                 
-                # Foto Lampiran
+                # Tambahkan Foto
                 if bukti_files:
                     pdf.add_page()
                     pdf.set_font("Arial", "B", 14)
@@ -123,7 +129,7 @@ if submit:
                 # Upload ke Drive
                 upload_to_drive(pdf_name, pdf_name)
                 
-                st.success("✅ Berhasil dikirim ke Google Drive!")
+                st.success(f"✅ Berhasil! File '{pdf_name}' sudah ada di Drive.")
                 st.balloons()
                 os.remove(pdf_name)
                 
