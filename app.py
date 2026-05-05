@@ -28,12 +28,12 @@ def append_to_sheets(data):
     ).execute()
 
 # --- ANTARMUKA PENGGUNA (UI) ---
-st.set_page_config(page_title="Sistem Input Wahyudi", layout="centered")
+st.set_page_config(page_title="Sistem Input Asep Wahyu", layout="centered")
 st.title("📊 Rekap Pengeluaran Otomatis")
 st.write("Data akan langsung masuk ke Google Sheets & PDF bisa di-download.")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama", value="Wahyudi")
+    nama = st.text_input("Nama", value="Asep Wahyu")
     tgl = st.date_input("Tanggal", datetime.now())
     keperluan = st.text_area("Keperluan (Maintenance/Lainnya)")
     
