@@ -46,7 +46,7 @@ def upload_to_drive(file_content, file_name):
     # Metadata file
     file_metadata = {
         'name': file_name,
-        'parents': [DRIVE_FOLDER_ID]
+        'parents': [1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX]
     }
     
     # Upload media
