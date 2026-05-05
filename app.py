@@ -27,11 +27,11 @@ def append_to_sheets(data):
     ).execute()
 
 # --- 2. ANTARMUKA PENGGUNA ---
-st.set_page_config(page_title="Input Pengeluaran & Report", layout="centered")
-st.title("📊 Rekap Pengeluaran & Laporan Servis")
+st.set_page_config(page_title="Input Laporan Asep Wahyu", layout="centered")
+st.title("📊 Rekap Pengeluaran & Service Report")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama Personel", value="Wahyudi")
+    nama = st.text_input("Nama Personel", value="Asep Wahyu")
     tgl = st.date_input("Tanggal Maintenance", datetime.now())
     keperluan = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
     
@@ -44,81 +44,83 @@ with st.form("main_form", clear_on_submit=True):
     
     st.divider()
     st.write("📂 **Lampiran Dokumen**")
+    
+    # SLIDER UNTUK MENGATUR UKURAN NOTA (Fitur Baru)
+    lebar_nota = st.slider("Atur Lebar Foto Nota di PDF (mm)", 50, 190, 150)
+    
     bukti_files = st.file_uploader("📸 Upload Foto Nota (JPG/PNG)", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
     report_file = st.file_uploader("📄 Upload Service Report (PDF)", type=['pdf'])
     
-    submit = st.form_submit_button("Simpan Data & Gabung PDF")
+    submit = st.form_submit_button("Simpan & Buat Laporan")
 
 # --- 3. PROSES DATA ---
 if submit:
     if not keperluan:
-        st.error("Detail pekerjaan wajib diisi!")
+        st.error("Isi detail pekerjaan!")
     else:
-        with st.spinner("Memproses data dan menggabungkan dokumen..."):
+        with st.spinner("Memproses..."):
             try:
                 total = bensin + toll + makan + parkir
                 data_row = [str(tgl), nama, keperluan, bensin, toll, makan, parkir, total]
                 
-                # A. SIMPAN KE GOOGLE SHEETS
+                # A. SIMPAN KE SHEETS
                 append_to_sheets(data_row)
                 
-                # B. BUAT HALAMAN PERTAMA (KOP & RINCIAN)
+                # B. BUAT PDF UTAMA
                 pdf_utama = FPDF()
                 pdf_utama.add_page()
                 
-                # Kop Surat
+                # Kop Surat Profesional
                 pdf_utama.set_font("Arial", "B", 14)
-                pdf_utama.cell(0, 7, "LAPORAN MAINTENANCE & PENGELUARAN", ln=True, align="C")
+                pdf_utama.cell(0, 7, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
                 pdf_utama.set_font("Arial", "", 10)
-                pdf_utama.cell(0, 5, f"Teknisi: {nama} | Tanggal: {tgl}", ln=True, align="C")
-                pdf_utama.set_line_width(0.5)
+                pdf_utama.cell(0, 5, f"Oleh: {nama} | Tanggal: {tgl}", ln=True, align="C")
                 pdf_utama.line(10, 25, 200, 25)
                 pdf_utama.ln(10)
                 
-                # Detail Biaya
+                # Ringkasan Biaya
                 pdf_utama.set_font("Arial", "B", 12)
-                pdf_utama.cell(0, 10, "Rincian Biaya Lapangan:", ln=True)
+                pdf_utama.cell(0, 10, "Ringkasan Pengeluaran:", ln=True)
                 pdf_utama.set_font("Arial", "", 12)
-                pdf_utama.cell(50, 8, f"Bensin: Rp {bensin:,}", ln=True)
-                pdf_utama.cell(50, 8, f"Toll: Rp {toll:,}", ln=True)
-                pdf_utama.cell(50, 8, f"Makan: Rp {makan:,}", ln=True)
-                pdf_utama.cell(50, 8, f"Parkir: Rp {parkir:,}", ln=True)
-                pdf_utama.set_font("Arial", "B", 12)
-                pdf_utama.cell(50, 10, f"TOTAL: Rp {total:,}", ln=True)
+                pdf_utama.cell(0, 8, f"- Total Biaya: Rp {total:,}", ln=True)
+                pdf_utama.ln(5)
                 
-                # Lampiran Foto
+                # Lampiran Foto dengan Ukuran yang Diatur
                 if bukti_files:
                     pdf_utama.add_page()
-                    pdf_utama.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                    pdf_utama.set_font("Arial", "B", 12)
+                    pdf_utama.cell(0, 10, "LAMPIRAN FOTO NOTA:", ln=True)
+                    pdf_utama.ln(5)
+                    
                     for f in bukti_files:
                         tmp_img = f"tmp_{f.name}"
                         with open(tmp_img, "wb") as img_f:
                             img_f.write(f.getbuffer())
-                        pdf_utama.image(tmp_img, x=10, w=150)
+                        
+                        # MENGGUNAKAN VARIABEL lebar_nota DARI SLIDER
+                        pdf_utama.image(tmp_img, x=10, w=lebar_nota)
+                        pdf_utama.ln(10)
                         os.remove(tmp_img)
                 
-                # Simpan PDF Utama ke Buffer
-                pdf_utama_bytes = pdf_utama.output()
+                pdf_bytes = pdf_utama.output()
                 
-                # C. PENGGABUNGAN DENGAN SERVICE REPORT PDF
+                # C. GABUNGKAN DENGAN PDF REPORT
                 merger = PdfWriter()
-                merger.append(io.BytesIO(pdf_utama_bytes))
+                merger.append(io.BytesIO(pdf_bytes))
                 
                 if report_file:
                     merger.append(io.BytesIO(report_file.read()))
                 
-                # Hasil Akhir
                 final_buffer = io.BytesIO()
                 merger.write(final_buffer)
-                final_pdf = final_buffer.getvalue()
                 
-                st.success("✅ Data tersimpan di Google Sheets dan PDF berhasil digabung!")
+                st.success("✅ Data tersimpan di Google Sheets!")
                 st.download_button(
-                    label="📥 Download Laporan Lengkap (PDF)",
-                    data=final_pdf,
-                    file_name=f"Laporan_Lengkap_{nama}_{tgl}.pdf",
+                    label="📥 Download Laporan Akhir",
+                    data=final_buffer.getvalue(),
+                    file_name=f"Laporan_{nama}_{tgl}.pdf",
                     mime="application/pdf"
                 )
                 
             except Exception as e:
-                st.error(f"Terjadi kesalahan: {e}")
+                st.error(f"Gagal: {e}")
