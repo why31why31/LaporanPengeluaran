@@ -43,7 +43,7 @@ with st.form("main_form", clear_on_submit=True):
     parkir = col2.number_input("Parkir/Lainnya (Rp)", min_value=0, step=1000)
     
     st.divider()
-    bukti_files = st.file_uploader("📸 Foto Nota/Bukti", accept_multiple_files=True, type=['jpg', 'jpeg', 'png',pdf])
+    bukti_files = st.file_uploader("📸 Foto Nota/Bukti", accept_multiple_files=True, type=['jpg', 'jpeg', 'png','pdf'])
     
     submit = st.form_submit_button("Simpan ke Google Drive")
 
