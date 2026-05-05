@@ -7,12 +7,12 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import os
 
-# --- KONFIGURASI GOOGLE DRIVE ---
-# Folder ID didapat dari URL folder Google Drive Anda
-FOLDER_ID_DRIVE = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX"
+# --- 1. KONFIGURASI GOOGLE DRIVE ---
+# Masukkan ID Folder dari URL Google Drive Anda
+FOLDER_ID_DRIVE = "1ITsQrx3hQe6XxSWs_j7G8t7pmFKdwZoX" 
 
 def get_drive_service():
-    # Mengambil kunci rahasia dari Streamlit Secrets (aman untuk GitHub)
+    # Mengambil kunci dari Streamlit Secrets
     info = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(info)
     return build('drive', 'v3', credentials=creds)
@@ -20,40 +20,33 @@ def get_drive_service():
 def upload_to_drive(file_path, file_name):
     service = get_drive_service()
     
-    # 1. Upload file ke folder tujuan
-    file_metadata = {'name': file_name, 'parents': [FOLDER_ID_DRIVE]}
-    media = MediaFileUpload(file_path, resumable=True)
-    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    file_id = file.get('id')
-    
-    # 2. PINDAHKAN KEPEMILIKAN (Agar tidak kena error kuota Service Account)
-    # Ganti 'email_pribadi_anda@gmail.com' dengan email asli Anda
-    user_permission = {
-        'type': 'user',
-        'role': 'owner',
-        'emailAddress': 'email_pribadi_anda@gmail.com' 
+    # Metadata file
+    file_metadata = {
+        'name': file_name,
+        'parents': [FOLDER_ID_DRIVE]
     }
     
-    # Eksekusi pemindahan pemilik (transferOwnership wajib True)
-    service.permissions().create(
-        fileId=file_id,
-        body=user_permission,
-        transferOwnership=True,
+    media = MediaFileUpload(file_path, resumable=True)
+    
+    # Proses Upload
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
         fields='id'
     ).execute()
     
-    return file_id
+    return file.get('id')
 
-# --- UI APP ---
+# --- 2. ANTARMUKA PENGGUNA (UI) ---
 st.set_page_config(page_title="Input Pengeluaran Wahyudi", layout="centered")
 
-st.title("🚀 Form Pengeluaran Lapangan")
-st.write("Input pengeluaran langsung dari HP ke Google Drive.")
+st.title("📝 Form Pengeluaran Lapangan")
+st.info("Input data & foto bukti akan otomatis dikonversi ke PDF dan dikirim ke Google Drive.")
 
 with st.form("main_form", clear_on_submit=True):
-    nama = st.text_input("Nama", value="Asep Wahyu")
+    nama = st.text_input("Nama", value="Wahyudi")
     tgl = st.date_input("Tanggal", datetime.now())
-    keperluan = st.text_area("Keperluan")
+    keperluan = st.text_area("Keperluan Kantor", placeholder="Misal: Maintenance rutin Kilian Tablet Press")
     
     st.divider()
     col1, col2 = st.columns(2)
@@ -63,57 +56,65 @@ with st.form("main_form", clear_on_submit=True):
     parkir = col2.number_input("Parkir/Lainnya (Rp)", min_value=0, step=1000)
     
     st.divider()
-    bukti_files = st.file_uploader("📸 Foto Nota/Bukti", accept_multiple_files=True, type=['jpg', 'jpeg', 'png','pdf'])
+    bukti_files = st.file_uploader("📸 Lampirkan Bukti (Foto/Nota)", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
     
-    submit = st.form_submit_button("Simpan ke Google Drive")
+    submit = st.form_submit_button("Kirim Laporan ke Drive")
 
+# --- 3. LOGIKA PEMROSESAN ---
 if submit:
     if not keperluan:
-        st.error("Mohon isi kolom Keperluan!")
+        st.error("Kolom Keperluan wajib diisi!")
     else:
-        with st.spinner("Sedang memproses laporan..."):
-            total = bensin + toll + makan + parkir
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            pdf_name = f"Nota_{nama}_{timestamp}.pdf"
-            
-            # 1. Generate PDF
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", "B", 16)
-            pdf.cell(0, 10, "LAPORAN PENGELUARAN", ln=True, align="C")
-            pdf.set_font("Arial", "", 12)
-            pdf.ln(10)
-            
-            data_pdf = [
-                ("Nama", nama), ("Tanggal", str(tgl)), ("Keperluan", keperluan),
-                ("Bensin", f"Rp {bensin:,}"), ("Toll", f"Rp {toll:,}"),
-                ("Makan", f"Rp {makan:,}"), ("Parkir", f"Rp {parkir:,}"),
-                ("TOTAL", f"Rp {total:,}")
-            ]
-            
-            for label, val in data_pdf:
-                pdf.cell(50, 10, label, 1)
-                pdf.cell(0, 10, f" {val}", 1, ln=True)
-            
-            # 2. Tambahkan Foto ke PDF
-            if bukti_files:
-                pdf.add_page()
-                pdf.cell(0, 10, "LAMPIRAN BUKTI:", ln=True)
-                for uploaded_file in bukti_files:
-                    temp_path = f"temp_{uploaded_file.name}"
-                    with open(temp_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    pdf.image(temp_path, x=10, w=100)
-                    pdf.ln(5)
-                    os.remove(temp_path) # Hapus file sementara
-            
-            pdf.output(pdf_name)
-            
-            # 3. Upload ke Google Drive
+        with st.spinner("Sedang menyusun PDF dan mengunggah..."):
             try:
-                drive_id = upload_to_drive(pdf_name, pdf_name)
-                st.success(f"✅ Berhasil! File telah tersimpan di Google Drive.")
+                total = bensin + toll + makan + parkir
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                pdf_name = f"Nota_{nama}_{timestamp}.pdf"
+                
+                # Buat Dokumen PDF
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", "B", 16)
+                pdf.cell(0, 10, "NOTA PENGELUARAN KANTOR", ln=True, align="C")
+                pdf.ln(10)
+                
+                pdf.set_font("Arial", "", 12)
+                rincian = [
+                    ("Nama", nama), ("Tanggal", str(tgl)), ("Keperluan", keperluan),
+                    ("-" * 20, "-" * 20),
+                    ("Bensin", f"Rp {bensin:,}"), ("Toll", f"Rp {toll:,}"),
+                    ("Makan", f"Rp {makan:,}"), ("Parkir", f"Rp {parkir:,}"),
+                    ("TOTAL", f"Rp {total:,}")
+                ]
+                
+                for label, val in rincian:
+                    pdf.cell(50, 10, label, 0)
+                    pdf.cell(0, 10, f": {val}", 0, ln=True)
+                
+                # Tambahkan Lampiran Foto ke PDF
+                if bukti_files:
+                    pdf.add_page()
+                    pdf.set_font("Arial", "B", 14)
+                    pdf.cell(0, 10, "LAMPIRAN BUKTI", ln=True)
+                    pdf.ln(5)
+                    
+                    for uploaded_file in bukti_files:
+                        temp_path = f"temp_{uploaded_file.name}"
+                        with open(temp_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        # Ukuran gambar disesuaikan agar pas di PDF
+                        pdf.image(temp_path, x=10, w=100)
+                        pdf.ln(10)
+                        os.remove(temp_path) 
+                
+                pdf.output(pdf_name)
+                
+                # Upload ke Google Drive
+                upload_to_drive(pdf_name, pdf_name)
+                
+                st.success(f"✅ Berhasil! Laporan '{pdf_name}' sudah tersimpan di Google Drive.")
                 st.balloons()
-                os.remove(pdf_name) # Bersihkan server cloud
+                os.remove(pdf_name) # Hapus file di server cloud agar bersih
+                
             except Exception as e:
-                st.error(f"Gagal upload ke Drive: {e}")
+                st.error(f"Terjadi kesalahan: {e}")
