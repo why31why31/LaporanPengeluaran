@@ -54,7 +54,7 @@ def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         
-        # Metadata menyertakan 'parents' agar menggunakan kuota folder tujuan (Drive Bapak)
+        # Metadata menyertakan 'parents' agar menggunakan kuota folder Bapak
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
@@ -188,6 +188,8 @@ if check_password():
                         report_file.seek(0); merger.append(io.BytesIO(report_file.read()))
                     
                     f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
+                    
+                    # --- EKSEKUSI UPLOAD ---
                     drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
@@ -206,7 +208,6 @@ if check_password():
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
                 with st.expander(f"📅 {row.get('Tanggal', 'N/A')} - {row.get('Keperluan', 'N/A')}"):
-                    # Logika anti-error kolom jika ada perbedaan penulisan di Sheets
                     v_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan (Luar kota)', row.get('Uang Makan', 0)))
                     v_total = row.get('Total', row.get('total', 0))
                     rincian = {
