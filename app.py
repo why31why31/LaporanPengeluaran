@@ -21,7 +21,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-# Pastikan Service Account sudah jadi 'Editor' di folder ini
+# Folder ini harus sudah di-share ke email Service Account sebagai 'Editor'
 PARENT_FOLDER_ID = "1zU_b_6865osGILgOsY_usiM6LrR6IbFE" 
 KOP_FILE_PATH = "kop_tetap.jpg"
 
@@ -53,11 +53,16 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
+        
+        # Metadata menyertakan 'parents' agar menggunakan kuota folder tujuan
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
         }
+        
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
+        
+        # Eksekusi dengan supportsAllDrives=True untuk folder shared
         file = service.files().create(
             body=file_metadata,
             media_body=media,
@@ -67,7 +72,7 @@ def upload_to_gdrive(file_buffer, file_name):
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ Kuota Penuh: Share folder Drive ke Service Account sebagai Editor.")
+            st.error("⚠️ Kuota Penuh: Pastikan Folder Drive sudah di-share ke email Service Account sebagai Editor.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
