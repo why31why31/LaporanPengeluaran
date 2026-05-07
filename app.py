@@ -8,11 +8,12 @@ from googleapiclient.discovery import build
 import io
 import os
 import plotly.express as px
+from PIL import Image # Penting untuk mencegah error RuntimeError pada PDF
 
 # --- 1. KONFIGURASI & LOGIN ---
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-KOP_FILE_PATH = "kop_tetap.png"
-PASSWORD_APP = "as1234" # <--- Silakan ganti passwordnya di sini
+KOP_FILE_PATH = "kop_tetap.jpg" # File JPG lebih stabil untuk PDF
+PASSWORD_APP = "as1234" 
 
 def check_password():
     if "password_correct" not in st.session_state:
@@ -56,7 +57,6 @@ def get_all_data():
 
 def delete_sheet_row(row_index):
     service = get_gcp_service('sheets', 'v4')
-    # Row index di Sheets mulai dari 1, dan kita ada header, jadi +1
     request = {'deleteDimension': {'range': {'sheetId': 0, 'dimension': 'ROWS', 'startIndex': row_index, 'endIndex': row_index + 1}}}
     body = {'requests': [request]}
     service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=body).execute()
@@ -68,11 +68,15 @@ if check_password():
     tab1, tab2 = st.tabs(["📝 Input Harian", "📊 Analisis & Kumulatif"])
 
     with tab1:
-        # SIDEBAR PENGATURAN
+        # SIDEBAR PENGATURAN KOP
         st.sidebar.header("⚙️ Pengaturan Kop")
-        update_kop = st.sidebar.file_uploader("Upload Kop", type=['jpg','png'])
+        update_kop = st.sidebar.file_uploader("Upload Kop", type=['jpg', 'jpeg', 'png'])
         if update_kop:
-            with open(KOP_FILE_PATH, "wb") as f: f.write(update_kop.getbuffer())
+            # Mengonversi gambar ke RGB dan simpan sebagai JPG agar PDF tidak error
+            img = Image.open(update_kop).convert("RGB")
+            img.save(KOP_FILE_PATH, "JPEG")
+            st.sidebar.success("Kop berhasil diperbarui!")
+            st.rerun()
         
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
         spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
@@ -100,7 +104,7 @@ if check_password():
             
             st.divider()
             lebar_nota = st.slider("Lebar Nota (mm)", 50, 190, 150)
-            bukti_files = st.file_uploader("Foto Nota", accept_multiple_files=True, type=['jpg','png'])
+            bukti_files = st.file_uploader("Foto Nota", accept_multiple_files=True, type=['jpg','png','jpeg'])
             report_file = st.file_uploader("Service Report PDF", type=['pdf'])
             
             col_b1, col_b2 = st.columns(2)
@@ -114,49 +118,54 @@ if check_password():
                 st.write(f"**Tanggal:** {tgl_input} | **Mesin:** {mesin}")
                 st.write(f"**Pekerjaan:** {detail}")
                 st.table(pd.DataFrame({"Kategori": ["Bensin", "Toll", "Makan", "Parkir"], 
-                                      "Biaya": [bensin, toll, makan, parkir]}))
+                                      "Biaya": [f"Rp {bensin:,}", f"Rp {toll:,}", f"Rp {makan:,}", f"Rp {parkir:,}"]}))
 
         if btn_sub:
             with st.spinner("Menyimpan..."):
-                total = bensin + toll + makan + parkir
-                tgl_iso = tgl_input.strftime('%Y-%m-%d')
-                append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
-                
-                # Pembuatan PDF (Sama seperti sebelumnya namun lebih rapi)
-                pdf = FPDF()
-                pdf.add_page()
-                if kop_exist:
-                    pdf.image(KOP_FILE_PATH, x=10, y=10, w=lebar_kop)
-                    pdf.ln(spasi_bawah)
-                pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-                pdf.ln(5)
-                pdf.set_font("Arial", "B", 12)
-                pdf.cell(0, 10, f"LAPORAN MAINTENANCE {mesin.upper()}", ln=True)
-                pdf.set_font("Arial", "", 11)
-                pdf.cell(0, 7, f"Tanggal: {tgl_iso} | Pelaksana: {nama}", ln=True)
-                pdf.multi_cell(0, 7, f"Detail: {detail}")
-                pdf.ln(5)
-                # Tabel rincian di PDF
-                pdf.cell(100, 8, "Item", 1); pdf.cell(60, 8, "Biaya (Rp)", 1, ln=True)
-                pdf.cell(100, 8, "Total Bensin, Toll, Makan, Parkir", 1); pdf.cell(60, 8, f"{total:,}", 1, ln=True)
-                
-                if bukti_files:
+                try:
+                    total = bensin + toll + makan + parkir
+                    tgl_iso = tgl_input.strftime('%Y-%m-%d')
+                    append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
+                    
+                    # Pembuatan PDF
+                    pdf = FPDF()
                     pdf.add_page()
-                    for f in bukti_files:
-                        tmp = f"t_{f.name}"; 
-                        with open(tmp, "wb") as img: img.write(f.getbuffer())
-                        pdf.image(tmp, x=10, w=lebar_nota); os.remove(tmp)
-                
-                final_pdf = io.BytesIO()
-                # Proses Merger dengan Report
-                p_out = pdf.output()
-                merger = PdfWriter()
-                merger.append(io.BytesIO(p_out))
-                if report_file: merger.append(io.BytesIO(report_file.read()))
-                merger.write(final_pdf)
-                
-                st.success("✅ Tersimpan!")
-                st.download_button("📥 Download PDF", final_pdf.getvalue(), f"Lap_{mesin}_{tgl_iso}.pdf")
+                    if kop_exist:
+                        pdf.image(KOP_FILE_PATH, x=10, y=10, w=lebar_kop)
+                        pdf.ln(spasi_bawah)
+                    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+                    pdf.ln(5)
+                    pdf.set_font("Arial", "B", 12)
+                    pdf.cell(0, 10, f"LAPORAN MAINTENANCE {mesin.upper()}", ln=True)
+                    pdf.set_font("Arial", "", 11)
+                    pdf.cell(0, 7, f"Tanggal: {tgl_iso} | Pelaksana: {nama}", ln=True)
+                    pdf.multi_cell(0, 7, f"Detail Pekerjaan: {detail}")
+                    pdf.ln(5)
+                    pdf.cell(100, 8, "Total Biaya Operasional", 1); pdf.cell(60, 8, f"Rp {total:,}", 1, ln=True)
+                    
+                    if bukti_files:
+                        pdf.add_page()
+                        pdf.set_font("Arial", "B", 12)
+                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        for f in bukti_files:
+                            # Mengonversi nota ke JPG agar PDF tidak error
+                            img_nota = Image.open(f).convert("RGB")
+                            tmp = f"t_{f.name}.jpg"
+                            img_nota.save(tmp, "JPEG")
+                            pdf.image(tmp, x=10, w=lebar_nota)
+                            os.remove(tmp)
+                    
+                    final_pdf = io.BytesIO()
+                    p_out = pdf.output()
+                    merger = PdfWriter()
+                    merger.append(io.BytesIO(p_out))
+                    if report_file: merger.append(io.BytesIO(report_file.read()))
+                    merger.write(final_pdf)
+                    
+                    st.success("✅ Tersimpan!")
+                    st.download_button("📥 Download PDF", final_pdf.getvalue(), f"Lap_{mesin}_{tgl_iso}.pdf")
+                except Exception as e:
+                    st.error(f"Gagal memproses PDF: {e}")
 
     with tab2:
         st.header("📊 Analisis Data")
@@ -165,16 +174,15 @@ if check_password():
             df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
             df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
             
-            # GRAFIK PENGELUARAN
             fig = px.bar(df, x='Tanggal', y='Total', color='Nama', title="Tren Biaya Per Hari")
             st.plotly_chart(fig, use_container_width=True)
             
             st.divider()
             st.subheader("Data Mentah (Bisa Hapus)")
-            # Tambahkan kolom nomor untuk hapus
             for i, row in df.iterrows():
                 col_d1, col_d2 = st.columns([0.8, 0.2])
-                col_d1.write(f"**{row['Tanggal'].date()}** - {row['Keperluan']} - Rp {row['Total']:,}")
+                tgl_display = row['Tanggal'].date() if not pd.isnull(row['Tanggal']) else "No Date"
+                col_d1.write(f"**{tgl_display}** - {row['Keperluan']} - Rp {row['Total']:,}")
                 if col_d2.button("🗑️ Hapus", key=f"del_{i}"):
-                    delete_sheet_row(i + 1) # +1 karena ada header
+                    delete_sheet_row(i + 1)
                     st.rerun()
