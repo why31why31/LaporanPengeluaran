@@ -79,6 +79,8 @@ if check_password():
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
         st.header("Input Maintenance")
+        
+        # Form dengan clear_on_submit=False agar data tidak hilang saat Preview
         with st.form("main_form", clear_on_submit=False):
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             
@@ -99,24 +101,30 @@ if check_password():
             
             st.divider()
             lebar_nota = st.slider("Lebar Nota (mm)", 50, 190, 150)
-            # Pastikan variabel ini tidak tertukar
-            bukti_files = st.file_uploader("📸 Upload Foto Nota", accept_multiple_files=True, type=['jpg','png','jpeg'])
-            report_file = st.file_uploader("📄 Upload Service Report (PDF)", type=['pdf'])
+            bukti_files = st.file_uploader("📸 Foto Nota", accept_multiple_files=True, type=['jpg','png','jpeg'])
+            report_file = st.file_uploader("📄 Service Report (PDF)", type=['pdf'])
             
             col_b1, col_b2 = st.columns(2)
             btn_prev = col_b1.form_submit_button("🔍 PREVIEW")
             btn_sub = col_b2.form_submit_button("💾 SIMPAN DATA")
 
+        # LOGIKA PREVIEW (Sejajar dengan kolom tombol di dalam tab1)
         if btn_prev:
-            st.subheader("Preview Laporan")
+            st.markdown("---")
+            st.subheader("📄 Preview Hasil Cetak")
             with st.container(border=True):
-                if kop_exist: st.image(KOP_FILE_PATH, width=400)
-                st.write(f"**Tanggal:** {tgl_input} | **Mesin:** {mesin}")
-                st.write(f"**Pekerjaan:** {detail}")
-                st.table(pd.DataFrame({"Item": ["Bensin", "Toll", "Makan", "Parkir"], 
-                                      "Biaya": [f"Rp {bensin:,}", f"Rp {toll:,}", f"Rp {makan:,}", f"Rp {parkir:,}"]}))
+                if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
+                st.markdown("<hr style='border: 1px solid black;'>", unsafe_allow_html=True)
+                p_c1, p_c2 = st.columns(2)
+                p_c1.write(f"**Tanggal:** {tgl_input}")
+                p_c2.write(f"**Oleh:** {nama}")
+                st.write(f"**Pekerjaan:** {keperluan}")
+                total_prev = bensin + toll + makan + parkir
+                st.table(pd.DataFrame({"Item": ["Bensin", "Toll", "Makan", "Parkir", "TOTAL"], 
+                                      "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{makan:,}", f"{parkir:,}", f"**{total_prev:,}**"]}))
 
-       if btn_sub:
+        # LOGIKA SUBMIT (Sejajar dengan btn_prev)
+        if btn_sub:
             with st.spinner("Sedang memproses laporan..."):
                 try:
                     total = bensin + toll + makan + parkir
@@ -125,50 +133,38 @@ if check_password():
                     # 1. Simpan ke Sheets
                     append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
                     
-                    # 2. Buat PDF Utama (Layout Identik dengan Preview)
+                    # 2. Buat PDF Utama
                     pdf = FPDF()
                     pdf.add_page()
-                    
-                    # BAGIAN KOP SURAT
                     if kop_exist:
-                        # Kita gunakan variabel yang berasal dari slider sidebar Bapak
-                        # Jika nama variabel di slider Bapak adalah 'posisi_y_kop' dan 'lebar_kop'
                         pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop)
-                        # Memberikan jarak setelah gambar (mengikuti spasi_bawah dari sidebar)
-                        pdf.set_y(10 + (lebar_kop/4) + 5) 
-                        pdf.ln(spasi_bawah / 2) # Menggunakan variabel 'spasi_bawah' dari sidebar
-                    else:
-                        pdf.set_font("Arial", "B", 16)
-                        pdf.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
+                        pdf.set_y(10 + (lebar_kop/4) + 5)
+                        pdf.ln(spasi_bawah / 2)
                     
-                    # Garis pembatas
                     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
                     pdf.ln(5)
-                    
-                    # Identitas (Layout 2 kolom)
-                    pdf.set_font("Arial", "", 11)
+                    pdf.set_font("Arial", "B", 11)
                     pdf.cell(95, 7, f"Tanggal: {tgl_iso}", 0)
                     pdf.cell(95, 7, f"Oleh: {nama}", 0, ln=True)
+                    pdf.set_font("Arial", "", 11)
                     pdf.multi_cell(0, 7, f"Detail Pekerjaan: {keperluan}")
                     pdf.ln(5)
                     
-                    # TABEL RINCIAN BIAYA
+                    # Tabel PDF
                     pdf.set_font("Arial", "B", 11)
                     pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori", 1, 0, 'L', True)
                     pdf.cell(60, 10, " Jumlah (Rp)", 1, 1, 'L', True)
-                    
                     pdf.set_font("Arial", "", 11)
-                    pdf.cell(100, 9, " Bensin", 1); pdf.cell(60, 9, f" {bensin:,}", 1, 1)
-                    pdf.cell(100, 9, " Toll", 1); pdf.cell(60, 9, f" {toll:,}", 1, 1)
-                    pdf.cell(100, 9, " Makan", 1); pdf.cell(60, 9, f" {makan:,}", 1, 1)
-                    pdf.cell(100, 9, " Parkir", 1); pdf.cell(60, 9, f" {parkir:,}", 1, 1)
-                    
+                    pdf.cell(100, 8, " Bensin", 1); pdf.cell(60, 8, f" {bensin:,}", 1, 1)
+                    pdf.cell(100, 8, " Toll", 1); pdf.cell(60, 8, f" {toll:,}", 1, 1)
+                    pdf.cell(100, 8, " Makan", 1); pdf.cell(60, 8, f" {makan:,}", 1, 1)
+                    pdf.cell(100, 8, " Parkir", 1); pdf.cell(60, 8, f" {parkir:,}", 1, 1)
                     pdf.set_font("Arial", "B", 11)
                     pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True)
                     pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
                     
-                    # 3. Proses Lampiran Nota
+                    # Lampiran Nota
                     temp_nota_files = []
                     if bukti_files:
                         pdf.add_page()
@@ -176,342 +172,46 @@ if check_password():
                         pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
                         for i, f in enumerate(bukti_files):
                             img_nota = Image.open(f).convert("RGB")
-                            tmp_name = f"final_nota_{i}.jpg"
-                            img_nota.save(tmp_name, "JPEG")
-                            temp_nota_files.append(tmp_name)
-                            pdf.image(tmp_name, x=10, w=lebar_nota)
+                            tmp_n = f"final_n_{i}.jpg"
+                            img_nota.save(tmp_n, "JPEG")
+                            temp_nota_files.append(tmp_n)
+                            pdf.image(tmp_n, x=10, w=lebar_nota)
                             pdf.ln(5)
                     
-                    # 4. Simpan PDF utama ke file fisik sementara
-                    main_pdf_temp = "main_final_render.pdf"
-                    pdf.output(main_pdf_temp)
+                    # Render Final
+                    main_p_temp = "render_temp.pdf"
+                    pdf.output(main_p_temp)
                     
-                    # 5. Gabungkan menggunakan PdfWriter
                     merger = PdfWriter()
-                    merger.append(main_pdf_temp)
-                    
+                    merger.append(main_p_temp)
                     if report_file:
                         report_file.seek(0)
                         merger.append(report_file)
                     
-                    # 6. Tulis hasil akhir
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
+                    f_buffer = io.BytesIO()
+                    merger.write(f_buffer)
                     
-                    # Bersihkan file
-                    if os.path.exists(main_pdf_temp): os.remove(main_pdf_temp)
-                    for tmp in temp_nota_files:
-                        if os.path.exists(tmp): os.remove(tmp)
-                    
-                    st.success("✅ Laporan Berhasil Dibuat!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
+                    if os.path.exists(main_p_temp): os.remove(main_p_temp)
+                    for tn in temp_nota_files:
+                        if os.path.exists(tn): os.remove(tn)
+                        
+                    st.success("✅ Berhasil!")
+                    st.download_button("📥 Download PDF", f_buffer.getvalue(), f"Laporan_{tgl_iso}.pdf")
                 except Exception as e:
-                    st.error(f"Terjadi kesalahan teknis: {str(e)}")
-                    
-                    # 3. Proses Lampiran Nota (Halaman Baru)
-                    temp_nota_files = []
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for i, f in enumerate(bukti_files):
-                            img_nota = Image.open(f).convert("RGB")
-                            tmp_name = f"pdf_nota_{i}.jpg"
-                            img_nota.save(tmp_name, "JPEG")
-                            temp_nota_files.append(tmp_name)
-                            # Lebar nota mengikuti slider yang Bapak atur
-                            pdf.image(tmp_name, x=10, w=lebar_nota)
-                            pdf.ln(5)
-                    
-                    # 4. Simpan & Gabung
-                    main_pdf_temp = "laporan_final_temp.pdf"
-                    pdf.output(main_pdf_temp)
-                    
-                    merger = PdfWriter()
-                    merger.append(main_pdf_temp)
-                    
-                    if report_file:
-                        report_file.seek(0)
-                        merger.append(report_file)
-                    
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
-                    
-                    # Bersihkan file
-                    if os.path.exists(main_pdf_temp): os.remove(main_pdf_temp)
-                    for tmp in temp_nota_files:
-                        if os.path.exists(tmp): os.remove(tmp)
-                    
-                    st.success("✅ Laporan Berhasil Dibuat!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan teknis: {str(e)}")                    
-                    # 3. Proses Lampiran Nota (Gunakan File Fisik Sementara dengan Ekstensi Jelas)
-                    temp_nota_files = []
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for i, f in enumerate(bukti_files):
-                            img_nota = Image.open(f).convert("RGB")
-                            # Nama file harus ada ekstensinya (misal .jpg) agar rfind tidak error
-                            tmp_name = f"temp_nota_{i}.jpg"
-                            img_nota.save(tmp_name, "JPEG")
-                            temp_nota_files.append(tmp_name)
-                            
-                            # Masukkan ke PDF menggunakan nama file (string), bukan objek BytesIO
-                            pdf.image(tmp_name, x=10, w=lebar_nota)
-                    
-                    # 4. Simpan PDF utama ke file fisik sementara
-                    main_pdf_temp = "main_temp.pdf"
-                    pdf.output(main_pdf_temp)
-                    
-                    # 5. Gabungkan menggunakan PdfWriter
-                    merger = PdfWriter()
-                    merger.append(main_pdf_temp)
-                    
-                    if report_file:
-                        report_file.seek(0)
-                        merger.append(report_file)
-                    
-                    # 6. Tulis hasil akhir ke buffer untuk didownload
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
-                    
-                    # --- BERSIHKAN SEMUA FILE SEMENTARA ---
-                    if os.path.exists(main_pdf_temp):
-                        os.remove(main_pdf_temp)
-                    for tmp_img in temp_nota_files:
-                        if os.path.exists(tmp_img):
-                            os.remove(tmp_img)
-                    
-                    st.success("✅ Laporan Berhasil Dibuat!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan teknis: {str(e)}")                    
-                    # 3. Proses Lampiran Nota (Gunakan Buffer Memori)
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for f in bukti_files:
-                            img_nota = Image.open(f).convert("RGB")
-                            img_buffer = io.BytesIO()
-                            img_nota.save(img_buffer, format="JPEG")
-                            img_buffer.seek(0)
-                            pdf.image(img_buffer, x=10, w=lebar_nota)
-                    
-                    # --- KUNCI PERBAIKAN: SIMPAN KE FILE FISIK SEMENTARA ---
-                    main_pdf_temp = "main_temp.pdf"
-                    pdf.output(main_pdf_temp)
-                    
-                    # Gunakan PdfWriter untuk menggabungkan
-                    merger = PdfWriter()
-                    
-                    # Masukkan PDF utama yang baru dibuat
-                    merger.append(main_pdf_temp)
-                    
-                    # Masukkan Service Report jika ada
-                    if report_file:
-                        report_file.seek(0)
-                        merger.append(report_file)
-                    
-                    # Tulis ke Buffer untuk diunduh
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
-                    
-                    # Hapus file sementara setelah digabung
-                    if os.path.exists(main_pdf_temp):
-                        os.remove(main_pdf_temp)
-                    
-                    st.success("✅ Laporan Berhasil Dibuat!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan teknis: {str(e)}")                    
-                    # 3. Proses Lampiran Nota (MENGGUNAKAN MEMORI)
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for f in bukti_files:
-                            # Olah gambar di memori saja
-                            img_nota = Image.open(f).convert("RGB")
-                            img_buffer = io.BytesIO()
-                            img_nota.save(img_buffer, format="JPEG")
-                            img_buffer.seek(0) # Kembali ke awal data
-                            
-                            # Masukkan ke PDF langsung dari buffer memori
-                            pdf.image(img_buffer, x=10, w=lebar_nota)
-                    
-                    # 4. Generate Output PDF
-                    pdf_output = pdf.output()
-                    
-                    # Pastikan dalam bentuk bytes
-                    if isinstance(pdf_output, str):
-                        pdf_output = pdf_output.encode('latin1')
-                    
-                    merger = PdfWriter()
-                    merger.append(io.BytesIO(pdf_output))
-                    
-                    if report_file:
-                        report_file.seek(0)
-                        merger.append(io.BytesIO(report_file.read()))
-                    
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
-                    
-                    st.success("✅ Laporan Berhasil Dibuat!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    # Tampilkan detail error agar kita bisa lacak jika masih ada masalah
-                    st.error(f"Terjadi kesalahan teknis: {str(e)}")
-                    
-                    # 3. Proses Lampiran Nota
-                    temp_files = [] # List untuk mencatat file sementara
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for i, f in enumerate(bukti_files):
-                            img_nota = Image.open(f).convert("RGB")
-                            tmp_name = f"nota_final_{i}.jpg"
-                            img_nota.save(tmp_name, "JPEG")
-                            temp_files.append(tmp_name) # Simpan nama filenya
-                            pdf.image(tmp_name, x=10, w=lebar_nota)
-                    
-                    # --- KUNCI PERBAIKAN ---
-                    # Hasilkan output PDF DAHULU sebelum menghapus file gambar
-                    pdf_output = pdf.output()
-                    
-                    # Hapus file sementara SETELAH pdf.output() selesai
-                    for tmp_file in temp_files:
-                        if os.path.exists(tmp_file):
-                            os.remove(tmp_file)
-                    
-                    # Konversi ke bytes jika perlu
-                    if isinstance(pdf_output, str):
-                        pdf_output = pdf_output.encode('latin1')
-                    
-                    merger = PdfWriter()
-                    merger.append(io.BytesIO(pdf_output))
-                    
-                    if report_file:
-                        report_file.seek(0)
-                        merger.append(io.BytesIO(report_file.read()))
-                    
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
-                    
-                    st.success("✅ Laporan Berhasil Dibuat!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan teknis: {e}")                    
-                    # 3. Proses Lampiran Nota
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for i, f in enumerate(bukti_files):
-                            img_nota = Image.open(f).convert("RGB")
-                            tmp_name = f"nota_temp_{i}.jpg"
-                            img_nota.save(tmp_name, "JPEG")
-                            pdf.image(tmp_name, x=10, w=lebar_nota)
-                            os.remove(tmp_name)
-                    
-                    # --- PERBAIKAN DI SINI ---
-                    # Ambil output PDF sebagai bytes
-                    pdf_output = pdf.output()
-                    
-                    # Jika pdf_output adalah string (pada versi lama), konversi ke bytes
-                    if isinstance(pdf_output, str):
-                        pdf_output = pdf_output.encode('latin1')
-                    
-                    merger = PdfWriter()
-                    merger.append(io.BytesIO(pdf_output))
-                    
-                    if report_file:
-                        report_file.seek(0)
-                        merger.append(io.BytesIO(report_file.read()))
-                    
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
-                    final_pdf_data = final_pdf_buffer.getvalue()
-                    # -------------------------
-                    
-                    st.success("✅ Data dan Report Berhasil Disimpan!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_data,
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan teknis: {e}")                    
-                    # 3. Proses Lampiran Nota
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for i, f in enumerate(bukti_files):
-                            img_nota = Image.open(f).convert("RGB")
-                            tmp_name = f"nota_temp_{i}.jpg" # Nama unik agar tidak bentrok
-                            img_nota.save(tmp_name, "JPEG")
-                            pdf.image(tmp_name, x=10, w=lebar_nota)
-                            os.remove(tmp_name)
-                    
-                    # 4. Penggabungan PDF (Main PDF + Service Report)
-                    pdf_output = pdf.output()
-                    merger = PdfWriter()
-                    merger.append(io.BytesIO(pdf_output))
-                    
-                    if report_file:
-                        # Reset pointer file agar terbaca dari awal
-                        report_file.seek(0)
-                        merger.append(io.BytesIO(report_file.read()))
-                    
-                    final_pdf_buffer = io.BytesIO()
-                    merger.write(final_pdf_buffer)
-                    
-                    st.success("✅ Data dan Report Berhasil Disimpan!")
-                    st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
-                        data=final_pdf_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan teknis: {e}")
+                    st.error(f"Gagal: {e}")
 
     with tab2:
-        st.header("📊 Analisis & Kumulatif")
-        # ... (Bagian Analisis tetap sama seperti sebelumnya)
+        st.header("📊 Analisis Data")
+        df = get_all_data()
+        if not df.empty:
+            df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+            df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+            fig = px.bar(df, x='Tanggal', y='Total', color='Nama', title="Tren Pengeluaran")
+            st.plotly_chart(fig, use_container_width=True)
+            st.divider()
+            for i, row in df.iterrows():
+                c_d1, c_d2 = st.columns([0.8, 0.2])
+                c_d1.write(f"**{row['Tanggal'].date()}** - {row['Keperluan']} - Rp {row['Total']:,}")
+                if c_d2.button("🗑️ Hapus", key=f"del_{i}"):
+                    delete_sheet_row(i + 1)
+                    st.rerun()
