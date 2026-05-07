@@ -54,7 +54,7 @@ def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         
-        # Metadata wajib menyertakan 'parents' untuk menggunakan kuota folder Bapak
+        # Metadata menyertakan 'parents' agar menggunakan kuota folder tujuan (Drive Bapak)
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
@@ -62,18 +62,17 @@ def upload_to_gdrive(file_buffer, file_name):
         
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
         
-        # Eksekusi upload
+        # Eksekusi dengan supportsAllDrives=True untuk folder shared/pribadi
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
-            supportsAllDrives=True # KUNCI untuk folder shared/pribadi
+            supportsAllDrives=True
         ).execute()
-        
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ Error Kuota: Pastikan Service Account sudah jadi Editor di Folder Bapak.")
+            st.error("⚠️ Kuota Penuh: Pastikan Folder Drive sudah di-share ke email Service Account sebagai Editor.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
@@ -151,7 +150,7 @@ if check_password():
             btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
 
         if btn_sub:
-            with st.spinner("Menyimpan..."):
+            with st.spinner("Proses simpan dan upload..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
@@ -207,6 +206,7 @@ if check_password():
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
                 with st.expander(f"📅 {row.get('Tanggal', 'N/A')} - {row.get('Keperluan', 'N/A')}"):
+                    # Logika anti-error kolom jika ada perbedaan penulisan di Sheets
                     v_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan (Luar kota)', row.get('Uang Makan', 0)))
                     v_total = row.get('Total', row.get('total', 0))
                     rincian = {
