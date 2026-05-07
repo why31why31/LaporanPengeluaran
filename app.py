@@ -128,7 +128,7 @@ if check_password():
                     st.success("✅ Berhasil disimpan!")
                 except Exception as e: st.error(f"Gagal: {e}")
 
-   with tab2:
+  with tab2:
         st.header(f"📊 Riwayat & Rincian Data: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         
@@ -137,28 +137,40 @@ if check_password():
             df_display = df.iloc[::-1].reset_index()
             
             for i, row in df_display.iterrows():
-                with st.expander(f"📅 {row['Tanggal']} - {row['Keperluan']}"):
-                    # --- KUNCI PERBAIKAN: Gunakan .get() agar tidak KeyError ---
-                    # Kita ambil datanya dengan pengecekan aman
-                    b_bensin = row.get('Bensin', 0)
-                    b_toll = row.get('Toll', 0)
-                    b_parkir = row.get('Parkir', 0)
-                    b_teknisi = row.get('Makan Teknisi', 0)
-                    # Cek kolom lama atau kolom baru
-                    b_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan', 0)) 
-                    b_hotel = row.get('Hotel', 0)
-                    b_bahan = row.get('Bahan/Alat', 0)
-                    b_total = row.get('Total', 0)
+                # Membuat Expander untuk setiap baris data
+                with st.expander(f"📅 {row.get('Tanggal', 'N/A')} - {row.get('Keperluan', 'N/A')}"):
+                    
+                    # --- KUNCI PERBAIKAN: Gunakan .get() agar ANTI-ERROR ---
+                    # Jika kolom tidak ditemukan, akan muncul angka 0 dan tidak membuat aplikasi mati
+                    val_bensin = row.get('Bensin', 0)
+                    val_toll = row.get('Toll', 0)
+                    val_parkir = row.get('Parkir', 0)
+                    val_teknisi = row.get('Makan Teknisi', 0)
+                    
+                    # Logika khusus: Cek nama kolom baru, jika tidak ada cek nama kolom lama
+                    val_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan', 0))
+                    
+                    val_hotel = row.get('Hotel', 0)
+                    val_bahan = row.get('Bahan/Alat', 0)
+                    val_total = row.get('Total', 0)
 
                     rincian_data = {
-                        "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"],
-                        "Nominal (Rp)": [b_bensin, b_toll, b_parkir, b_teknisi, b_makan, b_hotel, b_bahan, f"**{b_total}**"]
+                        "Kategori": [
+                            "Bensin", "Toll", "Parkir", "Makan Teknisi", 
+                            "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"
+                        ],
+                        "Nominal (Rp)": [
+                            val_bensin, val_toll, val_parkir, val_teknisi, 
+                            val_makan, val_hotel, val_bahan, f"**{val_total}**"
+                        ]
                     }
                     st.table(pd.DataFrame(rincian_data))
                     
-                    if st.button(f"🗑️ Hapus Data {row['Tanggal']}", key=f"del_{row['index']}"):
+                    # Tombol Hapus tetap menggunakan index asli (kolom 'index')
+                    if st.button(f"🗑️ Hapus Data {row.get('Tanggal', i)}", key=f"del_{row['index']}"):
+                        # Index + 1 karena baris 1 di Sheets adalah Header
                         delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
-                        st.success(f"Data tanggal {row['Tanggal']} telah dihapus!")
+                        st.success("Data berhasil dihapus!")
                         st.rerun()
         else:
             st.info("Belum ada data riwayat untuk Anda.")
