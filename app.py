@@ -21,7 +21,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-# Masukkan ID Folder Google Drive Bapak di sini:
+# ID Folder Google Drive (Sudah diset sesuai milik Bapak)
 PARENT_FOLDER_ID = "1zU_b_6865osGILgOsY_usiM6LrR6IbFE" 
 KOP_FILE_PATH = "kop_tetap.jpg"
 
@@ -54,11 +54,20 @@ def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         file_metadata = {'name': file_name}
-        if PARENT_FOLDER_ID != "1zU_b_6865osGILgOsY_usiM6LrR6IbFE":
+        
+        # Masukkan file ke folder Bapak
+        if PARENT_FOLDER_ID:
             file_metadata['parents'] = [PARENT_FOLDER_ID]
         
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
-        file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        
+        # KUNCI PERBAIKAN: Tambahkan supportsAllDrives=True
+        file = service.files().create(
+            body=file_metadata, 
+            media_body=media, 
+            fields='id',
+            supportsAllDrives=True 
+        ).execute()
         return file.get('id')
     except Exception as e:
         st.error(f"Gagal upload ke Drive: {e}")
@@ -198,7 +207,8 @@ if check_password():
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
                 with st.expander(f"📅 {row.get('Tanggal', 'N/A')} - {row.get('Keperluan', 'N/A')}"):
-                    v_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan', 0))
+                    # Logika anti-error kolom (Luar kota vs Luar Kota)
+                    v_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan (Luar kota)', row.get('Uang Makan', 0)))
                     v_total = row.get('Total', row.get('total', 0))
                     rincian = {
                         "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"],
