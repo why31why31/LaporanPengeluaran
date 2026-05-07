@@ -143,6 +143,54 @@ if check_password():
                     pdf.ln(5)
                     pdf.cell(100, 8, "Total Biaya Operasional", 1); pdf.cell(60, 8, f"Rp {total:,}", 1, ln=True)
                     
+                    # 3. Proses Lampiran Nota (Gunakan File Fisik Sementara dengan Ekstensi Jelas)
+                    temp_nota_files = []
+                    if bukti_files:
+                        pdf.add_page()
+                        pdf.set_font("Arial", "B", 12)
+                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        for i, f in enumerate(bukti_files):
+                            img_nota = Image.open(f).convert("RGB")
+                            # Nama file harus ada ekstensinya (misal .jpg) agar rfind tidak error
+                            tmp_name = f"temp_nota_{i}.jpg"
+                            img_nota.save(tmp_name, "JPEG")
+                            temp_nota_files.append(tmp_name)
+                            
+                            # Masukkan ke PDF menggunakan nama file (string), bukan objek BytesIO
+                            pdf.image(tmp_name, x=10, w=lebar_nota)
+                    
+                    # 4. Simpan PDF utama ke file fisik sementara
+                    main_pdf_temp = "main_temp.pdf"
+                    pdf.output(main_pdf_temp)
+                    
+                    # 5. Gabungkan menggunakan PdfWriter
+                    merger = PdfWriter()
+                    merger.append(main_pdf_temp)
+                    
+                    if report_file:
+                        report_file.seek(0)
+                        merger.append(report_file)
+                    
+                    # 6. Tulis hasil akhir ke buffer untuk didownload
+                    final_pdf_buffer = io.BytesIO()
+                    merger.write(final_pdf_buffer)
+                    
+                    # --- BERSIHKAN SEMUA FILE SEMENTARA ---
+                    if os.path.exists(main_pdf_temp):
+                        os.remove(main_pdf_temp)
+                    for tmp_img in temp_nota_files:
+                        if os.path.exists(tmp_img):
+                            os.remove(tmp_img)
+                    
+                    st.success("✅ Laporan Berhasil Dibuat!")
+                    st.download_button(
+                        label="📥 Download Hasil Akhir PDF",
+                        data=final_pdf_buffer.getvalue(),
+                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.error(f"Terjadi kesalahan teknis: {str(e)}")                    
                     # 3. Proses Lampiran Nota (Gunakan Buffer Memori)
                     if bukti_files:
                         pdf.add_page()
