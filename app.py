@@ -11,7 +11,6 @@ import plotly.express as px
 from PIL import Image
 
 # --- 1. KONFIGURASI USER & PASSWORD ---
-# Silakan Bapak tambah atau ubah daftar ini sesuai tim Bapak
 USERS_CREDENTIALS = {
     "Asep Wahyu": "as1234",
     "Wahyu": "wahyu123",
@@ -57,11 +56,11 @@ def append_to_sheets(nama_user, data):
     sheets = spreadsheet.get('sheets', [])
     sheet_names = [s.get('properties', {}).get('title') for s in sheets]
     
-    # Buat tab baru jika belum ada
     if nama_user not in sheet_names:
         batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
         service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-        header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Bahan/Alat", "Total"]]
+        # Header kolom disesuaikan dengan input
+        header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "Total"]]
         service.spreadsheets().values().update(
             spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
             valueInputOption="USER_ENTERED", body={'values': header}).execute()
@@ -85,7 +84,8 @@ if check_password():
             
         opsi_biaya = st.sidebar.multiselect(
             "Tampilkan Input Biaya:",
-            ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Bahan/Alat"],
+            # Label dirubah di sini
+            ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat"],
             default=["Bensin", "Toll", "Parkir"]
         )
         
@@ -97,7 +97,6 @@ if check_password():
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             
             c_id1, c_id2 = st.columns(2)
-            # Nama terkunci sesuai login
             nama = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
             tgl_input = c_id2.date_input("Tanggal Tugas", datetime.now())
             
@@ -116,7 +115,8 @@ if check_password():
             if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
             if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
             
-            if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan Umum", min_value=0)
+            # Perubahan Label Input
+            if "Uang Makan (Luar Kota)" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
             if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
             if "Bahan/Alat" in opsi_biaya: bahan_alat = st.number_input("Bahan/Alat", min_value=0)
             
@@ -133,10 +133,8 @@ if check_password():
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # Simpan ke Tab masing-masing di Spreadsheet
                     append_to_sheets(nama, [tgl_iso, nama, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
-                    # Pembuatan PDF (Sama seperti versi sebelumnya)
                     pdf = FPDF()
                     pdf.add_page()
                     if kop_exist:
@@ -151,7 +149,18 @@ if check_password():
                     pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori", 1, 0, 'L', True); pdf.cell(60, 10, " Biaya", 1, 1, 'L', True)
                     pdf.set_font("Arial", "", 11)
-                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan": uang_makan, "Hotel": hotel, "Bahan/Alat": bahan_alat}
+                    
+                    # Label PDF dirubah di sini
+                    dict_b = {
+                        "Bensin": bensin, 
+                        "Toll": toll, 
+                        "Parkir": parkir, 
+                        "Makan Teknisi": makan_teknisi, 
+                        "Uang Makan (Luar Kota)": uang_makan, 
+                        "Hotel": hotel, 
+                        "Bahan/Alat": bahan_alat
+                    }
+                    
                     for k, v in dict_b.items():
                         if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" {v:,}", 1, 1)
                     pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
