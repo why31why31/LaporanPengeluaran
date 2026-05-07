@@ -14,12 +14,14 @@ from PIL import Image
 # Silakan Bapak tambah atau ubah daftar ini sesuai tim Bapak
 USERS_CREDENTIALS = {
     "Asep Wahyu": "as1234",
-    "Wahyudi": "wahyu789",
-    "Teknisi1": "tek123",
+    "Wahyu": "wahyu123",
+    "Rangga": "rangga123",
+    "Ali": "ali123",
+    "Karim": "karim123"
     "Admin": "adminfinpac"
 }
 
-SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
+SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. SISTEM LOGIN ---
