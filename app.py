@@ -9,7 +9,7 @@ import io
 import os
 from PIL import Image
 
-# --- 1. KONFIGURASI USER ---
+# --- 1. KONFIGURASI USER & PASSWORD ---
 USERS_CREDENTIALS = {
     "Asep Wahyu": "as1234",
     "Wahyu": "wahyu123",
@@ -58,9 +58,13 @@ def append_to_sheets(nama_user, data):
         batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
         service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
         header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "Total"]]
-        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
+        service.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
+            valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
-    service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
+    service.spreadsheets().values().append(
+        spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
+        valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
 
 def get_user_data(nama_user):
     try:
@@ -69,7 +73,8 @@ def get_user_data(nama_user):
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
         return pd.DataFrame(values[1:], columns=values[0])
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
 def delete_user_row(nama_user, row_index):
     service = get_gcp_service('sheets', 'v4')
@@ -125,50 +130,79 @@ if check_password():
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     append_to_sheets(nama, [tgl_iso, nama, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
+                    
+                    # Pembuatan PDF
+                    pdf = FPDF()
+                    pdf.add_page()
+                    if kop_exist:
+                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop)
+                        pdf.ln(spasi_bawah)
+                    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+                    pdf.ln(5)
+                    pdf.set_font("Arial", "B", 11); pdf.cell(0, 7, f"Pelaksana: {nama} | Tanggal: {tgl_iso}", ln=True)
+                    pdf.set_font("Arial", "", 11); pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
+                    
+                    pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
+                    pdf.cell(100, 10, " Kategori", 1, 0, 'L', True); pdf.cell(60, 10, " Biaya", 1, 1, 'L', True)
+                    pdf.set_font("Arial", "", 11)
+                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (Luar Kota)": uang_makan, "Hotel": hotel, "Bahan/Alat": bahan_alat}
+                    for k, v in dict_b.items():
+                        if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" {v:,}", 1, 1)
+                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
+                    
+                    temp_n = []
+                    nota_pdfs = []
+                    if bukti_files:
+                        pdf.add_page()
+                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        for i, f in enumerate(bukti_files):
+                            if f.type == "application/pdf": nota_pdfs.append(f)
+                            else:
+                                img = Image.open(f).convert("RGB"); t_n = f"n_usr_{i}.jpg"; img.save(t_n, "JPEG")
+                                temp_n.append(t_n); pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(5)
+                    
+                    main_out = "final_render.pdf"
+                    pdf.output(main_out)
+                    merger = PdfWriter()
+                    merger.append(main_out)
+                    for n_pdf in nota_pdfs:
+                        n_pdf.seek(0); merger.append(io.BytesIO(n_pdf.read()))
+                    if report_file:
+                        report_file.seek(0); merger.append(io.BytesIO(report_file.read()))
+                    f_buf = io.BytesIO(); merger.write(f_buf)
+                    if os.path.exists(main_out): os.remove(main_out)
+                    for t in temp_n:
+                        if os.path.exists(t): os.remove(t)
+                            
                     st.success("✅ Berhasil disimpan!")
-                except Exception as e: st.error(f"Gagal: {e}")
+                    st.download_button("📥 Download PDF", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
+                except Exception as e:
+                    st.error(f"Gagal: {e}")
 
-  with tab2:
+    with tab2:
         st.header(f"📊 Riwayat & Rincian Data: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         
         if not df.empty:
-            # Membalik urutan agar data terbaru ada di paling atas
             df_display = df.iloc[::-1].reset_index()
-            
             for i, row in df_display.iterrows():
-                # Membuat Expander untuk setiap baris data
                 with st.expander(f"📅 {row.get('Tanggal', 'N/A')} - {row.get('Keperluan', 'N/A')}"):
-                    
-                    # --- KUNCI PERBAIKAN: Gunakan .get() agar ANTI-ERROR ---
-                    # Jika kolom tidak ditemukan, akan muncul angka 0 dan tidak membuat aplikasi mati
                     val_bensin = row.get('Bensin', 0)
                     val_toll = row.get('Toll', 0)
                     val_parkir = row.get('Parkir', 0)
                     val_teknisi = row.get('Makan Teknisi', 0)
-                    
-                    # Logika khusus: Cek nama kolom baru, jika tidak ada cek nama kolom lama
-                    val_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan', 0))
-                    
+                    val_makan = row.get('Uang Makan (Luar kota)', row.get('Uang Makan', 0))
                     val_hotel = row.get('Hotel', 0)
-                    val_bahan = row.get('Bahan/Alat', 0)
-                    val_total = row.get('Total', 0)
+                    val_bahan = row.get('Bahan/Alat', row.get('Tools/Bahan', 0))
+                    val_total = row.get('Total', row.get('total', 0))
 
                     rincian_data = {
-                        "Kategori": [
-                            "Bensin", "Toll", "Parkir", "Makan Teknisi", 
-                            "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"
-                        ],
-                        "Nominal (Rp)": [
-                            val_bensin, val_toll, val_parkir, val_teknisi, 
-                            val_makan, val_hotel, val_bahan, f"**{val_total}**"
-                        ]
+                        "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"],
+                        "Nominal (Rp)": [val_bensin, val_toll, val_parkir, val_teknisi, val_makan, val_hotel, val_bahan, f"**{val_total}**"]
                     }
                     st.table(pd.DataFrame(rincian_data))
                     
-                    # Tombol Hapus tetap menggunakan index asli (kolom 'index')
                     if st.button(f"🗑️ Hapus Data {row.get('Tanggal', i)}", key=f"del_{row['index']}"):
-                        # Index + 1 karena baris 1 di Sheets adalah Header
                         delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
                         st.success("Data berhasil dihapus!")
                         st.rerun()
