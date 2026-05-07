@@ -79,7 +79,7 @@ if check_password():
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
         st.header("Input Maintenance")
-        with st.form("main_form", clear_on_submit=True):
+        with st.form("main_form", clear_on_submit=False):
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             
             c_id1, c_id2 = st.columns(2)
