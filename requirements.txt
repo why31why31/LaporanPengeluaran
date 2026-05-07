@@ -1,6 +1,8 @@
 streamlit
-fpdf2
+pandas
+fpdf
 pypdf
 google-api-python-client
-google-auth
-pandas
+google-auth-httplib2
+google-auth-oauthlib
+plotly
