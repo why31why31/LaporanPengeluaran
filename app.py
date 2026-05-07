@@ -51,7 +51,6 @@ def get_gcp_service(service_name, version):
 
 def append_to_sheets(nama_user, data):
     service = get_gcp_service('sheets', 'v4')
-    # Cek/Buat tab seperti versi sebelumnya
     spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
     sheet_names = [s.get('properties', {}).get('title') for s in spreadsheet.get('sheets', [])]
     
@@ -83,7 +82,7 @@ def delete_user_row(nama_user, row_index):
 # --- 4. MULAI APLIKASI ---
 if check_password():
     st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
-    tab1, tab2 = st.tabs(["📝 Input Laporan", "📊 Data Saya & Edit"])
+    tab1, tab2 = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
     with tab1:
         st.sidebar.header(f"Halo, {st.session_state.user_nama}")
@@ -130,15 +129,27 @@ if check_password():
                 except Exception as e: st.error(f"Gagal: {e}")
 
     with tab2:
-        st.header(f"📊 Riwayat Data: {st.session_state.user_nama}")
+        st.header(f"📊 Riwayat & Rincian Data: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
+        
         if not df.empty:
-            for i, row in df.iterrows():
+            # Membalik urutan agar data terbaru ada di paling atas
+            df_display = df.iloc[::-1].reset_index()
+            
+            for i, row in df_display.iterrows():
+                # Membuat Expander untuk setiap baris data
                 with st.expander(f"📅 {row['Tanggal']} - {row['Keperluan']}"):
-                    st.write(f"**Total Biaya:** Rp {row['Total']}")
-                    if st.button("🗑️ Hapus Data Ini", key=f"del_{i}"):
-                        delete_user_row(st.session_state.user_nama, i + 1)
-                        st.success("Data dihapus!")
+                    # Menampilkan Rincian dalam bentuk tabel sederhana
+                    rincian_data = {
+                        "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"],
+                        "Nominal (Rp)": [row['Bensin'], row['Toll'], row['Parkir'], row['Makan Teknisi'], row['Uang Makan (Luar Kota)'], row['Hotel'], row['Bahan/Alat'], f"**{row['Total']}**"]
+                    }
+                    st.table(pd.DataFrame(rincian_data))
+                    
+                    # Tombol Hapus dengan konfirmasi unik
+                    if st.button(f"🗑️ Hapus Data {row['Tanggal']}", key=f"del_{row['index']}"):
+                        delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
+                        st.success(f"Data tanggal {row['Tanggal']} telah dihapus!")
                         st.rerun()
         else:
-            st.info("Belum ada data masuk untuk Anda.")
+            st.info("Belum ada data riwayat untuk Anda.")
