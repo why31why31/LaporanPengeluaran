@@ -7,11 +7,30 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import io
 import os
+import plotly.express as px
 
-# --- 1. KONFIGURASI ---
+# --- 1. KONFIGURASI & LOGIN ---
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
-KOP_FILE_PATH = "kop_tetap.png" 
+KOP_FILE_PATH = "kop_tetap.png"
+PASSWORD_APP = "wahyudi123" # <--- Silakan ganti passwordnya di sini
 
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+    
+    if not st.session_state.password_correct:
+        st.header("🔐 Akses Terkunci")
+        pwd = st.text_input("Masukkan Password Laporan:", type="password")
+        if st.button("Masuk"):
+            if pwd == PASSWORD_APP:
+                st.session_state.password_correct = True
+                st.rerun()
+            else:
+                st.error("Password Salah!")
+        return False
+    return True
+
+# --- 2. FUNGSI GOOGLE SERVICES ---
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(info)
@@ -21,183 +40,141 @@ def append_to_sheets(data):
     service = get_gcp_service('sheets', 'v4')
     body = {'values': [data]}
     service.spreadsheets().values().append(
-        spreadsheetId=SPREADSHEET_ID, 
-        range="Pengeluaran!A1",
-        valueInputOption="USER_ENTERED", 
-        insertDataOption="INSERT_ROWS", 
-        body=body
+        spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A1",
+        valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body=body
     ).execute()
 
 def get_all_data():
     try:
         service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:H").execute()
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:H").execute()
         values = result.get('values', [])
         if not values: return pd.DataFrame()
         headers = [h.strip() for h in values[0]]
         return pd.DataFrame(values[1:], columns=headers)
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
-# --- 2. TAMPILAN UTAMA ---
-st.set_page_config(page_title="Laporan Maintenance Wahyudi", layout="wide")
+def delete_sheet_row(row_index):
+    service = get_gcp_service('sheets', 'v4')
+    # Row index di Sheets mulai dari 1, dan kita ada header, jadi +1
+    request = {'deleteDimension': {'range': {'sheetId': 0, 'dimension': 'ROWS', 'startIndex': row_index, 'endIndex': row_index + 1}}}
+    body = {'requests': [request]}
+    service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=body).execute()
 
-tab1, tab2 = st.tabs(["📝 Input Harian", "📅 Laporan Kumulatif"])
-
-with tab1:
-    # --- SIDEBAR PENGATURAN KOP ---
-    st.sidebar.header("⚙️ Pengaturan Kop Surat")
-    update_kop = st.sidebar.file_uploader("Upload/Ganti Kop Surat", type=['jpg','jpeg','png'])
+# --- 3. MULAI APLIKASI ---
+if check_password():
+    st.set_page_config(page_title="Super Laporan Wahyudi", layout="wide")
     
-    if update_kop:
-        with open(KOP_FILE_PATH, "wb") as f:
-            f.write(update_kop.getbuffer())
-        st.sidebar.success("Kop berhasil disimpan!")
+    tab1, tab2 = st.tabs(["📝 Input Harian", "📊 Analisis & Kumulatif"])
 
-    # Opsi Atur Ukuran Kop (Disimpan dalam session state agar awet selama sesi jalan)
-    lebar_kop = st.sidebar.slider("Atur Lebar Kop di PDF (mm)", 30, 190, 190)
-    posisi_y_kop = st.sidebar.slider("Atur Jarak Atas Kop (mm)", 5, 20, 10)
-    spasi_bawah_kop = st.sidebar.slider("Atur Spasi Bawah Kop (mm)", 10, 50, 35)
-
-    kop_exist = os.path.exists(KOP_FILE_PATH)
-    
-    st.header("Input Data Pengeluaran")
-    with st.form("main_form", clear_on_submit=True):
-        if kop_exist:
-            st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
-            st.caption("✅ Kop Surat Aktif")
-        else:
-            st.warning("⚠️ Silakan upload Kop Surat melalui sidebar kiri.")
-
-        st.divider()
-        col_id1, col_id2 = st.columns(2)
-        nama = col_id1.text_input("Nama Personel", value="Wahyudi")
-        tgl_input = col_id2.date_input("Tanggal Maintenance", datetime.now())
-        keperluan = st.text_area("Detail Pekerjaan (Kilian/Romaco/Lainnya)")
+    with tab1:
+        # SIDEBAR PENGATURAN
+        st.sidebar.header("⚙️ Pengaturan Kop")
+        update_kop = st.sidebar.file_uploader("Upload Kop", type=['jpg','png'])
+        if update_kop:
+            with open(KOP_FILE_PATH, "wb") as f: f.write(update_kop.getbuffer())
         
-        st.divider()
-        c1, c2, c3, c4 = st.columns(4)
-        bensin = c1.number_input("Bensin (Rp)", min_value=0, step=1000)
-        toll = c2.number_input("Toll (Rp)", min_value=0, step=1000)
-        makan = c3.number_input("Makan (Rp)", min_value=0, step=1000)
-        parkir = c4.number_input("Parkir (Rp)", min_value=0, step=1000)
-        
-        st.divider()
-        st.write("📂 **Lampiran Nota**")
-        lebar_nota = st.slider("Atur Lebar Foto Nota di PDF (mm)", 50, 190, 150)
-        bukti_files = st.file_uploader("📸 Upload Foto Nota", accept_multiple_files=True, type=['jpg','jpeg','png'])
-        report_file = st.file_uploader("📄 Upload PDF Service Report", type=['pdf'])
-        
-        col_btn1, col_btn2 = st.columns(2)
-        btn_preview = col_btn1.form_submit_button("🔍 LIHAT PREVIEW")
-        btn_submit = col_btn2.form_submit_button("💾 SIMPAN & CETAK PDF")
+        lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
+        spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
+        kop_exist = os.path.exists(KOP_FILE_PATH)
 
-    # --- LOGIKA PREVIEW ---
-    if btn_preview:
-        st.markdown("---")
-        with st.container(border=True):
-            if kop_exist:
-                st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
-            else:
-                st.markdown("<h2 style='text-align: center;'>LAPORAN KERJA & BIAYA</h2>", unsafe_allow_html=True)
+        st.header("Input Maintenance")
+        with st.form("main_form", clear_on_submit=True):
+            if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             
-            st.markdown(f"<div style='margin-top:{spasi_bawah_kop}px; border-top: 2px solid black;'></div>", unsafe_allow_html=True)
+            c_id1, c_id2 = st.columns(2)
+            nama = c_id1.text_input("Nama", value="Wahyudi")
+            tgl_input = c_id2.date_input("Tanggal", datetime.now())
             
-            p_col1, p_col2 = st.columns(2)
-            p_col1.write(f"**Tanggal:** {tgl_input}")
-            p_col2.write(f"**Oleh:** {nama}")
-            st.write(f"**Detail:** {keperluan}")
+            # DROPDOWN MESIN
+            mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Fette", "Bosch", "Lainnya"])
+            detail = st.text_area("Detail Pekerjaan:")
+            keperluan = f"[{mesin}] {detail}"
             
-            total_val = bensin + toll + makan + parkir
-            prev_df = pd.DataFrame({
-                "Item": ["Bensin", "Toll", "Makan", "Parkir", "TOTAL"],
-                "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{makan:,}", f"{parkir:,}", f"**{total_val:,}**"]
-            })
-            st.table(prev_df)
+            st.divider()
+            c1, c2, c3, c4 = st.columns(4)
+            bensin = c1.number_input("Bensin", min_value=0)
+            toll = c2.number_input("Toll", min_value=0)
+            makan = c3.number_input("Makan", min_value=0)
+            parkir = c4.number_input("Parkir", min_value=0)
             
-            if bukti_files:
-                st.write("**Lampiran Nota:**")
-                for f in bukti_files:
-                    st.image(f, width=int(lebar_nota * 2.5))
+            st.divider()
+            lebar_nota = st.slider("Lebar Nota (mm)", 50, 190, 150)
+            bukti_files = st.file_uploader("Foto Nota", accept_multiple_files=True, type=['jpg','png'])
+            report_file = st.file_uploader("Service Report PDF", type=['pdf'])
+            
+            col_b1, col_b2 = st.columns(2)
+            btn_prev = col_b1.form_submit_button("🔍 PREVIEW")
+            btn_sub = col_b2.form_submit_button("💾 SIMPAN DATA")
 
-    # --- LOGIKA SUBMIT ---
-    if btn_submit:
-        if not keperluan:
-            st.error("Detail Pekerjaan wajib diisi!")
-        else:
-            with st.spinner("Sedang memproses..."):
-                try:
-                    total = bensin + toll + makan + parkir
-                    tgl_iso = tgl_input.strftime('%Y-%m-%d')
-                    append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
-                    
-                    pdf = FPDF()
+        if btn_prev:
+            st.subheader("Preview Laporan")
+            with st.container(border=True):
+                if kop_exist: st.image(KOP_FILE_PATH, width=400)
+                st.write(f"**Tanggal:** {tgl_input} | **Mesin:** {mesin}")
+                st.write(f"**Pekerjaan:** {detail}")
+                st.table(pd.DataFrame({"Kategori": ["Bensin", "Toll", "Makan", "Parkir"], 
+                                      "Biaya": [bensin, toll, makan, parkir]}))
+
+        if btn_sub:
+            with st.spinner("Menyimpan..."):
+                total = bensin + toll + makan + parkir
+                tgl_iso = tgl_input.strftime('%Y-%m-%d')
+                append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
+                
+                # Pembuatan PDF (Sama seperti sebelumnya namun lebih rapi)
+                pdf = FPDF()
+                pdf.add_page()
+                if kop_exist:
+                    pdf.image(KOP_FILE_PATH, x=10, y=10, w=lebar_kop)
+                    pdf.ln(spasi_bawah)
+                pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+                pdf.ln(5)
+                pdf.set_font("Arial", "B", 12)
+                pdf.cell(0, 10, f"LAPORAN MAINTENANCE {mesin.upper()}", ln=True)
+                pdf.set_font("Arial", "", 11)
+                pdf.cell(0, 7, f"Tanggal: {tgl_iso} | Pelaksana: {nama}", ln=True)
+                pdf.multi_cell(0, 7, f"Detail: {detail}")
+                pdf.ln(5)
+                # Tabel rincian di PDF
+                pdf.cell(100, 8, "Item", 1); pdf.cell(60, 8, "Biaya (Rp)", 1, ln=True)
+                pdf.cell(100, 8, "Total Bensin, Toll, Makan, Parkir", 1); pdf.cell(60, 8, f"{total:,}", 1, ln=True)
+                
+                if bukti_files:
                     pdf.add_page()
-                    
-                    if kop_exist:
-                        # Menggunakan variabel lebar dan posisi dari sidebar
-                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=posisi_y_kop, w=lebar_kop)
-                        pdf.set_y(posisi_y_kop + (lebar_kop/4) + 10) # Auto-adjust posisi teks di bawah kop
-                        pdf.ln(spasi_bawah_kop / 2)
-                    else:
-                        pdf.set_font("Arial", "B", 16)
-                        pdf.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
-                        pdf.ln(10)
-                    
-                    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-                    pdf.ln(10)
-                    
-                    pdf.set_font("Arial", "", 11)
-                    pdf.cell(0, 8, f"Tanggal: {tgl_iso}", ln=True)
-                    pdf.cell(0, 8, f"Oleh: {nama}", ln=True)
-                    pdf.cell(0, 8, f"Pekerjaan: {keperluan}", ln=True)
-                    pdf.ln(5)
-                    
-                    # Tabel Biaya
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(100, 10, "Kategori", 1); pdf.cell(60, 10, "Jumlah (Rp)", 1, ln=True)
-                    pdf.set_font("Arial", "", 11)
-                    pdf.cell(100, 8, "Bensin", 1); pdf.cell(60, 8, f"{bensin:,}", 1, ln=True)
-                    pdf.cell(100, 8, "Toll", 1); pdf.cell(60, 8, f"{toll:,}", 1, ln=True)
-                    pdf.cell(100, 8, "Makan", 1); pdf.cell(60, 8, f"{makan:,}", 1, ln=True)
-                    pdf.cell(100, 8, "Parkir", 1); pdf.cell(60, 8, f"{parkir:,}", 1, ln=True)
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(100, 10, "TOTAL", 1); pdf.cell(60, 10, f"{total:,}", 1, ln=True)
-                    
-                    if bukti_files:
-                        pdf.add_page()
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        for f in bukti_files:
-                            tmp_nota = f"tmp_{f.name}"
-                            with open(tmp_nota, "wb") as f_img: f_img.write(f.getbuffer())
-                            pdf.image(tmp_nota, x=10, w=lebar_nota)
-                            os.remove(tmp_nota)
-                    
-                    pdf_bytes = pdf.output()
-                    merger = PdfWriter()
-                    merger.append(io.BytesIO(pdf_bytes))
-                    if report_file: merger.append(io.BytesIO(report_file.read()))
-                    
-                    final_pdf = io.BytesIO()
-                    merger.write(final_pdf)
-                    
-                    st.success("✅ Berhasil Disimpan!")
-                    st.download_button(label="📥 Download PDF", data=final_pdf.getvalue(), file_name=f"Laporan_{tgl_iso}.pdf", mime="application/pdf")
-                except Exception as e:
-                    st.error(f"Gagal: {e}")
+                    for f in bukti_files:
+                        tmp = f"t_{f.name}"; 
+                        with open(tmp, "wb") as img: img.write(f.getbuffer())
+                        pdf.image(tmp, x=10, w=lebar_nota); os.remove(tmp)
+                
+                final_pdf = io.BytesIO()
+                # Proses Merger dengan Report
+                p_out = pdf.output()
+                merger = PdfWriter()
+                merger.append(io.BytesIO(p_out))
+                if report_file: merger.append(io.BytesIO(report_file.read()))
+                merger.write(final_pdf)
+                
+                st.success("✅ Tersimpan!")
+                st.download_button("📥 Download PDF", final_pdf.getvalue(), f"Lap_{mesin}_{tgl_iso}.pdf")
 
-# --- TAB 2: KUMULATIF ---
-with tab2:
-    st.header("Rekap Pengeluaran")
-    tgl_range = st.date_input("Pilih Rentang Tanggal", value=(datetime.now(), datetime.now()))
-    if st.button("🔍 Tampilkan Rekap"):
+    with tab2:
+        st.header("📊 Analisis Data")
         df = get_all_data()
         if not df.empty:
-            df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce').dt.date
-            if len(tgl_range) == 2:
-                start, end = tgl_range
-                df_filtered = df[(df['Tanggal'] >= start) & (df['Tanggal'] <= end)]
-                st.dataframe(df_filtered, use_container_width=True)
-                df_filtered['Total'] = pd.to_numeric(df_filtered['Total'], errors='coerce').fillna(0)
-                st.info(f"**Grand Total: Rp {df_filtered['Total'].sum():,}**")
+            df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+            df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+            
+            # GRAFIK PENGELUARAN
+            fig = px.bar(df, x='Tanggal', y='Total', color='Nama', title="Tren Biaya Per Hari")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.divider()
+            st.subheader("Data Mentah (Bisa Hapus)")
+            # Tambahkan kolom nomor untuk hapus
+            for i, row in df.iterrows():
+                col_d1, col_d2 = st.columns([0.8, 0.2])
+                col_d1.write(f"**{row['Tanggal'].date()}** - {row['Keperluan']} - Rp {row['Total']:,}")
+                if col_d2.button("🗑️ Hapus", key=f"del_{i}"):
+                    delete_sheet_row(i + 1) # +1 karena ada header
+                    st.rerun()
