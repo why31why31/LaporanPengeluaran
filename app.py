@@ -47,7 +47,7 @@ def append_to_sheets(data):
 def get_all_data():
     try:
         service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:K").execute()
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:L").execute()
         values = result.get('values', [])
         if not values: return pd.DataFrame()
         headers = [h.strip() for h in values[0]]
@@ -92,15 +92,16 @@ if check_password():
             keperluan = f"[{mesin}] {detail}"
             
             st.subheader("💰 Rincian Biaya")
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             bensin = c1.number_input("Bensin", min_value=0)
             toll = c2.number_input("Toll", min_value=0)
             parkir = c3.number_input("Parkir", min_value=0)
+            makan_teknisi = c4.number_input("Makan Teknisi", min_value=0) # Input Baru
             
-            c4, c5, c6 = st.columns(3)
-            uang_makan = c4.number_input("Uang Makan", min_value=0)
-            hotel = c5.number_input("Biaya Hotel/Penginapan", min_value=0)
-            bahan_alat = c6.number_input("Pembelian Bahan/Alat", min_value=0)
+            c5, c6, c7 = st.columns(3)
+            uang_makan = c5.number_input("Uang Makan Umum", min_value=0)
+            hotel = c6.number_input("Biaya Hotel", min_value=0)
+            bahan_alat = c7.number_input("Pembelian Bahan/Alat", min_value=0)
             
             st.divider()
             lebar_nota = st.slider("Lebar Nota di PDF (mm)", 50, 190, 150)
@@ -121,20 +122,20 @@ if check_password():
                 p_c1.write(f"**Tanggal:** {tgl_input}")
                 p_c2.write(f"**Oleh:** {nama}")
                 st.write(f"**Pekerjaan:** {keperluan}")
-                total_prev = bensin + toll + parkir + uang_makan + hotel + bahan_alat
+                total_prev = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                 st.table(pd.DataFrame({
-                    "Kategori": ["Bensin", "Toll", "Parkir", "Uang Makan", "Hotel", "Bahan/Alat", "TOTAL"], 
-                    "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{parkir:,}", f"{uang_makan:,}", f"{hotel:,}", f"{bahan_alat:,}", f"**{total_prev:,}**"]
+                    "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Bahan/Alat", "TOTAL"], 
+                    "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{parkir:,}", f"{makan_teknisi:,}", f"{uang_makan:,}", f"{hotel:,}", f"{bahan_alat:,}", f"**{total_prev:,}**"]
                 }))
 
         if btn_sub:
             with st.spinner("Memproses laporan..."):
                 try:
-                    total = bensin + toll + parkir + uang_makan + hotel + bahan_alat
+                    total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # 1. Simpan ke Google Sheets (Pastikan kolom di Sheet sesuai urutan ini)
-                    append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, parkir, uang_makan, hotel, bahan_alat, total])
+                    # 1. Simpan ke Sheets (Update: 11 Kolom)
+                    append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
                     # 2. Buat PDF Utama
                     pdf = FPDF()
@@ -162,6 +163,7 @@ if check_password():
                     pdf.cell(100, 8, " Bensin", 1); pdf.cell(60, 8, f" {bensin:,}", 1, 1)
                     pdf.cell(100, 8, " Toll", 1); pdf.cell(60, 8, f" {toll:,}", 1, 1)
                     pdf.cell(100, 8, " Parkir", 1); pdf.cell(60, 8, f" {parkir:,}", 1, 1)
+                    pdf.cell(100, 8, " Makan Teknisi", 1); pdf.cell(60, 8, f" {makan_teknisi:,}", 1, 1)
                     pdf.cell(100, 8, " Uang Makan", 1); pdf.cell(60, 8, f" {uang_makan:,}", 1, 1)
                     pdf.cell(100, 8, " Biaya Hotel", 1); pdf.cell(60, 8, f" {hotel:,}", 1, 1)
                     pdf.cell(100, 8, " Pembelian Bahan/Alat", 1); pdf.cell(60, 8, f" {bahan_alat:,}", 1, 1)
@@ -181,16 +183,16 @@ if check_password():
                                 nota_pdf_files.append(f)
                             else:
                                 img_nota = Image.open(f).convert("RGB")
-                                tmp_n = f"nota_render_{i}.jpg"
+                                tmp_n = f"nota_final_{i}.jpg"
                                 img_nota.save(tmp_n, "JPEG")
                                 temp_nota_images.append(tmp_n)
                                 pdf.image(tmp_n, x=10, w=lebar_nota)
                                 pdf.ln(5)
                     
-                    main_p_temp = "render_final.pdf"
+                    main_p_temp = "laporan_final.pdf"
                     pdf.output(main_p_temp)
                     
-                    # Penggabungan
+                    # Gabungkan PDF
                     merger = PdfWriter()
                     merger.append(main_p_temp)
                     for n_pdf in nota_pdf_files:
@@ -209,13 +211,13 @@ if check_password():
                         
                     st.success("✅ Laporan Berhasil Disimpan!")
                     st.download_button(
-                        label="📥 Download Hasil Akhir PDF",
+                        label="📥 Download Laporan Lengkap PDF",
                         data=f_buffer.getvalue(),
                         file_name=f"Laporan_{tgl_iso}.pdf",
                         mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"Gagal memproses data: {e}")
+                    st.error(f"Gagal: {e}")
 
     with tab2:
         st.header("📊 Analisis Data")
@@ -223,7 +225,7 @@ if check_password():
         if not df.empty:
             df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
             df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-            fig = px.bar(df, x='Tanggal', y='Total', color='Nama', title="Tren Pengeluaran Harian")
+            fig = px.bar(df, x='Tanggal', y='Total', color='Nama', title="Pengeluaran Harian")
             st.plotly_chart(fig, use_container_width=True)
             st.divider()
             for i, row in df.iterrows():
