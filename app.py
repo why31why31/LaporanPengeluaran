@@ -5,11 +5,12 @@ from fpdf import FPDF
 from pypdf import PdfWriter
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 import io
 import os
 from PIL import Image
 
-# --- 1. KONFIGURASI USER & PASSWORD ---
+# --- 1. KONFIGURASI ---
 USERS_CREDENTIALS = {
     "Asep Wahyu": "as1234",
     "Wahyu": "wahyu123",
@@ -20,6 +21,8 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
+# Masukkan ID Folder Google Drive Bapak di sini:
+PARENT_FOLDER_ID = "1zU_b_6865osGILgOsY_usiM6LrR6IbFE" 
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. SISTEM LOGIN ---
@@ -27,12 +30,10 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
         st.session_state.user_nama = ""
-    
     if not st.session_state.password_correct:
         st.header("🔐 Akses Terkunci - PT. Finpac")
         user_input = st.selectbox("Pilih Nama Anda:", list(USERS_CREDENTIALS.keys()))
         pwd_input = st.text_input("Masukkan Password Anda:", type="password")
-        
         if st.button("Masuk"):
             if USERS_CREDENTIALS.get(user_input) == pwd_input:
                 st.session_state.password_correct = True
@@ -48,6 +49,20 @@ def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(info)
     return build(service_name, version, credentials=creds)
+
+def upload_to_gdrive(file_buffer, file_name):
+    try:
+        service = get_gcp_service('drive', 'v3')
+        file_metadata = {'name': file_name}
+        if PARENT_FOLDER_ID != "MASUKKAN_ID_FOLDER_GDRIVE_DI_SINI":
+            file_metadata['parents'] = [PARENT_FOLDER_ID]
+        
+        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
+        file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        return file.get('id')
+    except Exception as e:
+        st.error(f"Gagal upload ke Drive: {e}")
+        return None
 
 def append_to_sheets(nama_user, data):
     service = get_gcp_service('sheets', 'v4')
@@ -73,14 +88,12 @@ def get_user_data(nama_user):
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
         return pd.DataFrame(values[1:], columns=values[0])
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 def delete_user_row(nama_user, row_index):
     service = get_gcp_service('sheets', 'v4')
     spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
     sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
-    
     request = {'deleteDimension': {'range': {'sheetId': sheet_id, 'dimension': 'ROWS', 'startIndex': row_index, 'endIndex': row_index + 1}}}
     service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': [request]}).execute()
 
@@ -95,9 +108,8 @@ if check_password():
             st.session_state.password_correct = False
             st.rerun()
             
-        opsi_biaya = st.sidebar.multiselect("Tampilkan Input Biaya:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
-        lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
-        spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
+        opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
+        lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190); spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
         with st.form("main_form", clear_on_submit=False):
@@ -122,23 +134,19 @@ if check_password():
             
             bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
             report_file = st.file_uploader("📄 Service Report", type=['pdf'])
-            btn_sub = st.form_submit_button("💾 SIMPAN & DOWNLOAD")
+            btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
 
         if btn_sub:
-            with st.spinner("Menyimpan..."):
+            with st.spinner("Proses simpan dan upload ke Drive..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     append_to_sheets(nama, [tgl_iso, nama, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
-                    # Pembuatan PDF
-                    pdf = FPDF()
-                    pdf.add_page()
+                    pdf = FPDF(); pdf.add_page()
                     if kop_exist:
-                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop)
-                        pdf.ln(spasi_bawah)
-                    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-                    pdf.ln(5)
+                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
+                    pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
                     pdf.set_font("Arial", "B", 11); pdf.cell(0, 7, f"Pelaksana: {nama} | Tanggal: {tgl_iso}", ln=True)
                     pdf.set_font("Arial", "", 11); pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                     
@@ -150,61 +158,53 @@ if check_password():
                         if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" {v:,}", 1, 1)
                     pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
                     
-                    temp_n = []
-                    nota_pdfs = []
+                    temp_n = []; nota_pdfs = []
                     if bukti_files:
-                        pdf.add_page()
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        pdf.add_page(); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
                         for i, f in enumerate(bukti_files):
                             if f.type == "application/pdf": nota_pdfs.append(f)
                             else:
                                 img = Image.open(f).convert("RGB"); t_n = f"n_usr_{i}.jpg"; img.save(t_n, "JPEG")
                                 temp_n.append(t_n); pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(5)
                     
-                    main_out = "final_render.pdf"
-                    pdf.output(main_out)
-                    merger = PdfWriter()
-                    merger.append(main_out)
+                    main_out = "temp_render.pdf"; pdf.output(main_out)
+                    merger = PdfWriter(); merger.append(main_out)
                     for n_pdf in nota_pdfs:
                         n_pdf.seek(0); merger.append(io.BytesIO(n_pdf.read()))
                     if report_file:
                         report_file.seek(0); merger.append(io.BytesIO(report_file.read()))
+                    
                     f_buf = io.BytesIO(); merger.write(f_buf)
+                    
+                    # --- UPLOAD KE DRIVE ---
+                    f_buf.seek(0)
+                    drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
+                    
                     if os.path.exists(main_out): os.remove(main_out)
                     for t in temp_n:
                         if os.path.exists(t): os.remove(t)
                             
-                    st.success("✅ Berhasil disimpan!")
-                    st.download_button("📥 Download PDF", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
-                except Exception as e:
-                    st.error(f"Gagal: {e}")
+                    if drive_id:
+                        st.success(f"✅ Tersimpan di Sheets & Upload ke Drive Berhasil!")
+                    else:
+                        st.warning("⚠️ Tersimpan di Sheets, tapi Gagal Upload ke Drive.")
+                    st.download_button("📥 Download PDF Manual", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
+                except Exception as e: st.error(f"Gagal: {e}")
 
     with tab2:
-        st.header(f"📊 Riwayat & Rincian Data: {st.session_state.user_nama}")
+        st.header(f"📊 Riwayat & Rincian: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
-        
         if not df.empty:
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
                 with st.expander(f"📅 {row.get('Tanggal', 'N/A')} - {row.get('Keperluan', 'N/A')}"):
-                    val_bensin = row.get('Bensin', 0)
-                    val_toll = row.get('Toll', 0)
-                    val_parkir = row.get('Parkir', 0)
-                    val_teknisi = row.get('Makan Teknisi', 0)
-                    val_makan = row.get('Uang Makan (Luar kota)', row.get('Uang Makan', 0))
-                    val_hotel = row.get('Hotel', 0)
-                    val_bahan = row.get('Bahan/Alat', row.get('Tools/Bahan', 0))
-                    val_total = row.get('Total', row.get('total', 0))
-
-                    rincian_data = {
+                    v_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan', 0))
+                    v_total = row.get('Total', row.get('total', 0))
+                    rincian = {
                         "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"],
-                        "Nominal (Rp)": [val_bensin, val_toll, val_parkir, val_teknisi, val_makan, val_hotel, val_bahan, f"**{val_total}**"]
+                        "Nominal": [row.get('Bensin',0), row.get('Toll',0), row.get('Parkir',0), row.get('Makan Teknisi',0), v_makan, row.get('Hotel',0), row.get('Bahan/Alat',0), f"**{v_total}**"]
                     }
-                    st.table(pd.DataFrame(rincian_data))
-                    
-                    if st.button(f"🗑️ Hapus Data {row.get('Tanggal', i)}", key=f"del_{row['index']}"):
+                    st.table(pd.DataFrame(rincian))
+                    if st.button(f"🗑️ Hapus {row.get('Tanggal', i)}", key=f"del_{row['index']}"):
                         delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
-                        st.success("Data berhasil dihapus!")
-                        st.rerun()
-        else:
-            st.info("Belum ada data riwayat untuk Anda.")
+                        st.success("Data dihapus!"); st.rerun()
