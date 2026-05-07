@@ -54,7 +54,7 @@ def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         
-        # Metadata menyertakan 'parents' agar menggunakan kuota folder tujuan
+        # Metadata wajib menyertakan 'parents' untuk menggunakan kuota folder Bapak
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
@@ -62,17 +62,18 @@ def upload_to_gdrive(file_buffer, file_name):
         
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
         
-        # Eksekusi dengan supportsAllDrives=True untuk folder shared
+        # Eksekusi upload
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
-            supportsAllDrives=True
+            supportsAllDrives=True # KUNCI untuk folder shared/pribadi
         ).execute()
+        
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ Kuota Penuh: Pastikan Folder Drive sudah di-share ke email Service Account sebagai Editor.")
+            st.error("⚠️ Error Kuota: Pastikan Service Account sudah jadi Editor di Folder Bapak.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
@@ -150,7 +151,7 @@ if check_password():
             btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
 
         if btn_sub:
-            with st.spinner("Proses simpan dan upload..."):
+            with st.spinner("Menyimpan..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
@@ -187,8 +188,7 @@ if check_password():
                     if report_file:
                         report_file.seek(0); merger.append(io.BytesIO(report_file.read()))
                     
-                    f_buf = io.BytesIO(); merger.write(f_buf)
-                    f_buf.seek(0)
+                    f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                     drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
@@ -196,7 +196,7 @@ if check_password():
                         if os.path.exists(t): os.remove(t)
                             
                     if drive_id:
-                        st.success(f"✅ Tersimpan di Sheets & Drive!")
+                        st.success(f"✅ Tersimpan di Sheets & Google Drive!")
                     st.download_button("📥 Download PDF Manual", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
                 except Exception as e: st.error(f"Gagal: {e}")
 
