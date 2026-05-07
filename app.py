@@ -47,7 +47,7 @@ def append_to_sheets(data):
 def get_all_data():
     try:
         service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:H").execute()
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range="Pengeluaran!A:K").execute()
         values = result.get('values', [])
         if not values: return pd.DataFrame()
         headers = [h.strip() for h in values[0]]
@@ -78,7 +78,7 @@ if check_password():
         spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
-        st.header("Input Maintenance")
+        st.header("Input Maintenance & Operasional")
         
         with st.form("main_form", clear_on_submit=False):
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
@@ -91,16 +91,19 @@ if check_password():
             detail = st.text_area("Detail Pekerjaan:")
             keperluan = f"[{mesin}] {detail}"
             
-            st.divider()
-            c1, c2, c3, c4 = st.columns(4)
+            st.subheader("💰 Rincian Biaya")
+            c1, c2, c3 = st.columns(3)
             bensin = c1.number_input("Bensin", min_value=0)
             toll = c2.number_input("Toll", min_value=0)
-            makan = c3.number_input("Makan", min_value=0)
-            parkir = c4.number_input("Parkir", min_value=0)
+            parkir = c3.number_input("Parkir", min_value=0)
+            
+            c4, c5, c6 = st.columns(3)
+            uang_makan = c4.number_input("Uang Makan", min_value=0)
+            hotel = c5.number_input("Biaya Hotel/Penginapan", min_value=0)
+            bahan_alat = c6.number_input("Pembelian Bahan/Alat", min_value=0)
             
             st.divider()
-            lebar_nota = st.slider("Lebar Nota (mm)", 50, 190, 150)
-            # Ditambahkan tipe 'pdf' pada uploader nota
+            lebar_nota = st.slider("Lebar Nota di PDF (mm)", 50, 190, 150)
             bukti_files = st.file_uploader("📸 Foto atau PDF Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
             report_file = st.file_uploader("📄 Service Report Utama (PDF)", type=['pdf'])
             
@@ -118,22 +121,22 @@ if check_password():
                 p_c1.write(f"**Tanggal:** {tgl_input}")
                 p_c2.write(f"**Oleh:** {nama}")
                 st.write(f"**Pekerjaan:** {keperluan}")
-                total_prev = bensin + toll + makan + parkir
+                total_prev = bensin + toll + parkir + uang_makan + hotel + bahan_alat
                 st.table(pd.DataFrame({
-                    "Kategori": ["Bensin", "Toll", "Makan", "Parkir", "TOTAL"], 
-                    "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{makan:,}", f"{parkir:,}", f"**{total_prev:,}**"]
+                    "Kategori": ["Bensin", "Toll", "Parkir", "Uang Makan", "Hotel", "Bahan/Alat", "TOTAL"], 
+                    "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{parkir:,}", f"{uang_makan:,}", f"{hotel:,}", f"{bahan_alat:,}", f"**{total_prev:,}**"]
                 }))
 
         if btn_sub:
-            with st.spinner("Memproses laporan dan menggabungkan file..."):
+            with st.spinner("Memproses laporan..."):
                 try:
-                    total = bensin + toll + makan + parkir
+                    total = bensin + toll + parkir + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # 1. Simpan ke Google Sheets
-                    append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
+                    # 1. Simpan ke Google Sheets (Pastikan kolom di Sheet sesuai urutan ini)
+                    append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, parkir, uang_makan, hotel, bahan_alat, total])
                     
-                    # 2. Buat PDF Utama (Laporan & Nota Gambar)
+                    # 2. Buat PDF Utama
                     pdf = FPDF()
                     pdf.add_page()
                     if kop_exist:
@@ -153,50 +156,46 @@ if check_password():
                     # Tabel PDF
                     pdf.set_font("Arial", "B", 11)
                     pdf.set_fill_color(240, 240, 240)
-                    pdf.cell(100, 10, " Kategori", 1, 0, 'L', True)
+                    pdf.cell(100, 10, " Kategori Pengeluaran", 1, 0, 'L', True)
                     pdf.cell(60, 10, " Jumlah (Rp)", 1, 1, 'L', True)
                     pdf.set_font("Arial", "", 11)
                     pdf.cell(100, 8, " Bensin", 1); pdf.cell(60, 8, f" {bensin:,}", 1, 1)
                     pdf.cell(100, 8, " Toll", 1); pdf.cell(60, 8, f" {toll:,}", 1, 1)
-                    pdf.cell(100, 8, " Makan", 1); pdf.cell(60, 8, f" {makan:,}", 1, 1)
                     pdf.cell(100, 8, " Parkir", 1); pdf.cell(60, 8, f" {parkir:,}", 1, 1)
+                    pdf.cell(100, 8, " Uang Makan", 1); pdf.cell(60, 8, f" {uang_makan:,}", 1, 1)
+                    pdf.cell(100, 8, " Biaya Hotel", 1); pdf.cell(60, 8, f" {hotel:,}", 1, 1)
+                    pdf.cell(100, 8, " Pembelian Bahan/Alat", 1); pdf.cell(60, 8, f" {bahan_alat:,}", 1, 1)
                     pdf.set_font("Arial", "B", 11)
                     pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True)
                     pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
                     
-                    # --- PILAH NOTA GAMBAR vs PDF ---
+                    # Lampiran Nota
                     temp_nota_images = []
                     nota_pdf_files = []
-                    
                     if bukti_files:
                         pdf.add_page()
                         pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        
+                        pdf.cell(0, 10, "LAMPIRAN NOTA / BUKTI PEMBAYARAN:", ln=True)
                         for i, f in enumerate(bukti_files):
                             if f.type == "application/pdf":
                                 nota_pdf_files.append(f)
                             else:
                                 img_nota = Image.open(f).convert("RGB")
-                                tmp_n = f"nota_temp_{i}.jpg"
+                                tmp_n = f"nota_render_{i}.jpg"
                                 img_nota.save(tmp_n, "JPEG")
                                 temp_nota_images.append(tmp_n)
                                 pdf.image(tmp_n, x=10, w=lebar_nota)
                                 pdf.ln(5)
                     
-                    main_p_temp = "render_main.pdf"
+                    main_p_temp = "render_final.pdf"
                     pdf.output(main_p_temp)
                     
-                    # --- PENGGABUNGAN AKHIR ---
+                    # Penggabungan
                     merger = PdfWriter()
                     merger.append(main_p_temp)
-                    
-                    # Gabungkan Nota PDF
                     for n_pdf in nota_pdf_files:
                         n_pdf.seek(0)
                         merger.append(io.BytesIO(n_pdf.read()))
-                    
-                    # Gabungkan Service Report
                     if report_file:
                         report_file.seek(0)
                         merger.append(io.BytesIO(report_file.read()))
@@ -204,7 +203,6 @@ if check_password():
                     f_buffer = io.BytesIO()
                     merger.write(f_buffer)
                     
-                    # Hapus file sementara
                     if os.path.exists(main_p_temp): os.remove(main_p_temp)
                     for tn in temp_nota_images:
                         if os.path.exists(tn): os.remove(tn)
@@ -213,11 +211,11 @@ if check_password():
                     st.download_button(
                         label="📥 Download Hasil Akhir PDF",
                         data=f_buffer.getvalue(),
-                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
+                        file_name=f"Laporan_{tgl_iso}.pdf",
                         mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"Gagal memproses file: {e}")
+                    st.error(f"Gagal memproses data: {e}")
 
     with tab2:
         st.header("📊 Analisis Data")
