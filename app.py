@@ -80,7 +80,6 @@ if check_password():
 
         st.header("Input Maintenance")
         
-        # Form dengan clear_on_submit=False agar data tidak hilang saat Preview
         with st.form("main_form", clear_on_submit=False):
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             
@@ -101,17 +100,17 @@ if check_password():
             
             st.divider()
             lebar_nota = st.slider("Lebar Nota (mm)", 50, 190, 150)
-            bukti_files = st.file_uploader("📸 Foto Nota", accept_multiple_files=True, type=['jpg','png','jpeg'])
-            report_file = st.file_uploader("📄 Service Report (PDF)", type=['pdf'])
+            # Ditambahkan tipe 'pdf' pada uploader nota
+            bukti_files = st.file_uploader("📸 Foto atau PDF Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
+            report_file = st.file_uploader("📄 Service Report Utama (PDF)", type=['pdf'])
             
             col_b1, col_b2 = st.columns(2)
             btn_prev = col_b1.form_submit_button("🔍 PREVIEW")
             btn_sub = col_b2.form_submit_button("💾 SIMPAN DATA")
 
-        # LOGIKA PREVIEW (Sejajar dengan kolom tombol di dalam tab1)
         if btn_prev:
             st.markdown("---")
-            st.subheader("📄 Preview Hasil Cetak")
+            st.subheader("📄 Preview Laporan")
             with st.container(border=True):
                 if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
                 st.markdown("<hr style='border: 1px solid black;'>", unsafe_allow_html=True)
@@ -120,20 +119,21 @@ if check_password():
                 p_c2.write(f"**Oleh:** {nama}")
                 st.write(f"**Pekerjaan:** {keperluan}")
                 total_prev = bensin + toll + makan + parkir
-                st.table(pd.DataFrame({"Item": ["Bensin", "Toll", "Makan", "Parkir", "TOTAL"], 
-                                      "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{makan:,}", f"{parkir:,}", f"**{total_prev:,}**"]}))
+                st.table(pd.DataFrame({
+                    "Kategori": ["Bensin", "Toll", "Makan", "Parkir", "TOTAL"], 
+                    "Biaya (Rp)": [f"{bensin:,}", f"{toll:,}", f"{makan:,}", f"{parkir:,}", f"**{total_prev:,}**"]
+                }))
 
-        # LOGIKA SUBMIT (Sejajar dengan btn_prev)
         if btn_sub:
-            with st.spinner("Sedang memproses laporan..."):
+            with st.spinner("Memproses laporan dan menggabungkan file..."):
                 try:
                     total = bensin + toll + makan + parkir
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # 1. Simpan ke Sheets
+                    # 1. Simpan ke Google Sheets
                     append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
                     
-                    # 2. Buat PDF Utama
+                    # 2. Buat PDF Utama (Laporan & Nota Gambar)
                     pdf = FPDF()
                     pdf.add_page()
                     if kop_exist:
@@ -164,41 +164,60 @@ if check_password():
                     pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True)
                     pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
                     
-                    # Lampiran Nota
-                    temp_nota_files = []
+                    # --- PILAH NOTA GAMBAR vs PDF ---
+                    temp_nota_images = []
+                    nota_pdf_files = []
+                    
                     if bukti_files:
                         pdf.add_page()
                         pdf.set_font("Arial", "B", 12)
                         pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        
                         for i, f in enumerate(bukti_files):
-                            img_nota = Image.open(f).convert("RGB")
-                            tmp_n = f"final_n_{i}.jpg"
-                            img_nota.save(tmp_n, "JPEG")
-                            temp_nota_files.append(tmp_n)
-                            pdf.image(tmp_n, x=10, w=lebar_nota)
-                            pdf.ln(5)
+                            if f.type == "application/pdf":
+                                nota_pdf_files.append(f)
+                            else:
+                                img_nota = Image.open(f).convert("RGB")
+                                tmp_n = f"nota_temp_{i}.jpg"
+                                img_nota.save(tmp_n, "JPEG")
+                                temp_nota_images.append(tmp_n)
+                                pdf.image(tmp_n, x=10, w=lebar_nota)
+                                pdf.ln(5)
                     
-                    # Render Final
-                    main_p_temp = "render_temp.pdf"
+                    main_p_temp = "render_main.pdf"
                     pdf.output(main_p_temp)
                     
+                    # --- PENGGABUNGAN AKHIR ---
                     merger = PdfWriter()
                     merger.append(main_p_temp)
+                    
+                    # Gabungkan Nota PDF
+                    for n_pdf in nota_pdf_files:
+                        n_pdf.seek(0)
+                        merger.append(io.BytesIO(n_pdf.read()))
+                    
+                    # Gabungkan Service Report
                     if report_file:
                         report_file.seek(0)
-                        merger.append(report_file)
+                        merger.append(io.BytesIO(report_file.read()))
                     
                     f_buffer = io.BytesIO()
                     merger.write(f_buffer)
                     
+                    # Hapus file sementara
                     if os.path.exists(main_p_temp): os.remove(main_p_temp)
-                    for tn in temp_nota_files:
+                    for tn in temp_nota_images:
                         if os.path.exists(tn): os.remove(tn)
                         
-                    st.success("✅ Berhasil!")
-                    st.download_button("📥 Download PDF", f_buffer.getvalue(), f"Laporan_{tgl_iso}.pdf")
+                    st.success("✅ Laporan Berhasil Disimpan!")
+                    st.download_button(
+                        label="📥 Download Hasil Akhir PDF",
+                        data=f_buffer.getvalue(),
+                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
+                        mime="application/pdf"
+                    )
                 except Exception as e:
-                    st.error(f"Gagal: {e}")
+                    st.error(f"Gagal memproses file: {e}")
 
     with tab2:
         st.header("📊 Analisis Data")
@@ -206,7 +225,7 @@ if check_password():
         if not df.empty:
             df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
             df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-            fig = px.bar(df, x='Tanggal', y='Total', color='Nama', title="Tren Pengeluaran")
+            fig = px.bar(df, x='Tanggal', y='Total', color='Nama', title="Tren Pengeluaran Harian")
             st.plotly_chart(fig, use_container_width=True)
             st.divider()
             for i, row in df.iterrows():
