@@ -21,7 +21,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-# Folder ini harus sudah di-share ke email Service Account sebagai 'Editor'
+# Pastikan Service Account sudah jadi 'Editor' di folder ini
 PARENT_FOLDER_ID = "1zU_b_6865osGILgOsY_usiM6LrR6IbFE" 
 KOP_FILE_PATH = "kop_tetap.jpg"
 
@@ -67,7 +67,7 @@ def upload_to_gdrive(file_buffer, file_name):
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ Gagal: Service Account tidak punya kuota. Pastikan Folder Drive sudah di-share ke email Service Account sebagai Editor.")
+            st.error("⚠️ Kuota Penuh: Share folder Drive ke Service Account sebagai Editor.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
@@ -145,7 +145,7 @@ if check_password():
             btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
 
         if btn_sub:
-            with st.spinner("Proses simpan dan upload ke Drive..."):
+            with st.spinner("Proses simpan dan upload..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
@@ -184,7 +184,6 @@ if check_password():
                     
                     f_buf = io.BytesIO(); merger.write(f_buf)
                     f_buf.seek(0)
-                    
                     drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
@@ -192,7 +191,7 @@ if check_password():
                         if os.path.exists(t): os.remove(t)
                             
                     if drive_id:
-                        st.success(f"✅ Tersimpan di Sheets & Upload ke Drive Berhasil!")
+                        st.success(f"✅ Tersimpan di Sheets & Drive!")
                     st.download_button("📥 Download PDF Manual", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
                 except Exception as e: st.error(f"Gagal: {e}")
 
