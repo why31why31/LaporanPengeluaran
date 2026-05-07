@@ -12,7 +12,7 @@ import plotly.express as px
 # --- 1. KONFIGURASI & LOGIN ---
 SPREADSHEET_ID = "1wNpbzzumbN9cSJZCYufEfZpIw4DdKp8Tunfuoc13CrM"
 KOP_FILE_PATH = "kop_tetap.png"
-PASSWORD_APP = "wahyudi123" # <--- Silakan ganti passwordnya di sini
+PASSWORD_APP = "as1234" # <--- Silakan ganti passwordnya di sini
 
 def check_password():
     if "password_correct" not in st.session_state:
@@ -63,7 +63,7 @@ def delete_sheet_row(row_index):
 
 # --- 3. MULAI APLIKASI ---
 if check_password():
-    st.set_page_config(page_title="Super Laporan Wahyudi", layout="wide")
+    st.set_page_config(page_title="Super Laporan Asep Wahyu", layout="wide")
     
     tab1, tab2 = st.tabs(["📝 Input Harian", "📊 Analisis & Kumulatif"])
 
@@ -83,11 +83,11 @@ if check_password():
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             
             c_id1, c_id2 = st.columns(2)
-            nama = c_id1.text_input("Nama", value="Wahyudi")
+            nama = c_id1.text_input("Nama", value="Asep Wahyu")
             tgl_input = c_id2.date_input("Tanggal", datetime.now())
             
             # DROPDOWN MESIN
-            mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Fette", "Bosch", "Lainnya"])
+            mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Siebler", "MG2", "Frewitt", "Truking", "FrymaKoruma", "Stephan", "Lainnya"])
             detail = st.text_area("Detail Pekerjaan:")
             keperluan = f"[{mesin}] {detail}"
             
