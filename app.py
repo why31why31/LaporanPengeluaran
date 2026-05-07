@@ -128,7 +128,7 @@ if check_password():
                     st.success("✅ Berhasil disimpan!")
                 except Exception as e: st.error(f"Gagal: {e}")
 
-    with tab2:
+   with tab2:
         st.header(f"📊 Riwayat & Rincian Data: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         
@@ -137,16 +137,25 @@ if check_password():
             df_display = df.iloc[::-1].reset_index()
             
             for i, row in df_display.iterrows():
-                # Membuat Expander untuk setiap baris data
                 with st.expander(f"📅 {row['Tanggal']} - {row['Keperluan']}"):
-                    # Menampilkan Rincian dalam bentuk tabel sederhana
+                    # --- KUNCI PERBAIKAN: Gunakan .get() agar tidak KeyError ---
+                    # Kita ambil datanya dengan pengecekan aman
+                    b_bensin = row.get('Bensin', 0)
+                    b_toll = row.get('Toll', 0)
+                    b_parkir = row.get('Parkir', 0)
+                    b_teknisi = row.get('Makan Teknisi', 0)
+                    # Cek kolom lama atau kolom baru
+                    b_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan', 0)) 
+                    b_hotel = row.get('Hotel', 0)
+                    b_bahan = row.get('Bahan/Alat', 0)
+                    b_total = row.get('Total', 0)
+
                     rincian_data = {
                         "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"],
-                        "Nominal (Rp)": [row['Bensin'], row['Toll'], row['Parkir'], row['Makan Teknisi'], row['Uang Makan (Luar Kota)'], row['Hotel'], row['Bahan/Alat'], f"**{row['Total']}**"]
+                        "Nominal (Rp)": [b_bensin, b_toll, b_parkir, b_teknisi, b_makan, b_hotel, b_bahan, f"**{b_total}**"]
                     }
                     st.table(pd.DataFrame(rincian_data))
                     
-                    # Tombol Hapus dengan konfirmasi unik
                     if st.button(f"🗑️ Hapus Data {row['Tanggal']}", key=f"del_{row['index']}"):
                         delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
                         st.success(f"Data tanggal {row['Tanggal']} telah dihapus!")
