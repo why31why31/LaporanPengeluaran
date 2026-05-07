@@ -17,7 +17,7 @@ USERS_CREDENTIALS = {
     "Wahyu": "wahyu123",
     "Rangga": "rangga123",
     "Ali": "ali123",
-    "Karim": "karim123"
+    "Karim": "karim123",
     "Admin": "adminfinpac"
 }
 
