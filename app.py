@@ -54,7 +54,7 @@ def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         file_metadata = {'name': file_name}
-        if PARENT_FOLDER_ID != "MASUKKAN_ID_FOLDER_GDRIVE_DI_SINI":
+        if PARENT_FOLDER_ID != "1zU_b_6865osGILgOsY_usiM6LrR6IbFE":
             file_metadata['parents'] = [PARENT_FOLDER_ID]
         
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
