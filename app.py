@@ -130,7 +130,7 @@ if check_password():
                     pdf.add_page()
                     
                     if kop_exist:
-                        # Pastikan file kop ada sebelum dipasang
+                        # Gunakan KOP_FILE_PATH yang sudah ada
                         pdf.image(KOP_FILE_PATH, x=10, y=10, w=lebar_kop)
                         pdf.ln(spasi_bawah)
                     
@@ -143,6 +143,49 @@ if check_password():
                     pdf.multi_cell(0, 7, f"Detail Pekerjaan: {detail}")
                     pdf.ln(5)
                     pdf.cell(100, 8, "Total Biaya Operasional", 1); pdf.cell(60, 8, f"Rp {total:,}", 1, ln=True)
+                    
+                    # 3. Proses Lampiran Nota (MENGGUNAKAN MEMORI)
+                    if bukti_files:
+                        pdf.add_page()
+                        pdf.set_font("Arial", "B", 12)
+                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        for f in bukti_files:
+                            # Olah gambar di memori saja
+                            img_nota = Image.open(f).convert("RGB")
+                            img_buffer = io.BytesIO()
+                            img_nota.save(img_buffer, format="JPEG")
+                            img_buffer.seek(0) # Kembali ke awal data
+                            
+                            # Masukkan ke PDF langsung dari buffer memori
+                            pdf.image(img_buffer, x=10, w=lebar_nota)
+                    
+                    # 4. Generate Output PDF
+                    pdf_output = pdf.output()
+                    
+                    # Pastikan dalam bentuk bytes
+                    if isinstance(pdf_output, str):
+                        pdf_output = pdf_output.encode('latin1')
+                    
+                    merger = PdfWriter()
+                    merger.append(io.BytesIO(pdf_output))
+                    
+                    if report_file:
+                        report_file.seek(0)
+                        merger.append(io.BytesIO(report_file.read()))
+                    
+                    final_pdf_buffer = io.BytesIO()
+                    merger.write(final_pdf_buffer)
+                    
+                    st.success("✅ Laporan Berhasil Dibuat!")
+                    st.download_button(
+                        label="📥 Download Hasil Akhir PDF",
+                        data=final_pdf_buffer.getvalue(),
+                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    # Tampilkan detail error agar kita bisa lacak jika masih ada masalah
+                    st.error(f"Terjadi kesalahan teknis: {str(e)}")
                     
                     # 3. Proses Lampiran Nota
                     temp_files = [] # List untuk mencatat file sementara
