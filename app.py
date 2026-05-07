@@ -116,7 +116,7 @@ if check_password():
                 st.table(pd.DataFrame({"Item": ["Bensin", "Toll", "Makan", "Parkir"], 
                                       "Biaya": [f"Rp {bensin:,}", f"Rp {toll:,}", f"Rp {makan:,}", f"Rp {parkir:,}"]}))
 
-        if btn_sub:
+       if btn_sub:
             with st.spinner("Sedang memproses laporan..."):
                 try:
                     total = bensin + toll + makan + parkir
@@ -125,33 +125,36 @@ if check_password():
                     # 1. Simpan ke Sheets
                     append_to_sheets([tgl_iso, nama, keperluan, bensin, toll, makan, parkir, total])
                     
-                    # 2. Buat PDF Utama (Mengikuti Layout Preview)
+                    # 2. Buat PDF Utama (Layout Identik dengan Preview)
                     pdf = FPDF()
                     pdf.add_page()
                     
                     # BAGIAN KOP SURAT
                     if kop_exist:
-                        # Menempatkan kop di tengah secara presisi
-                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=posisi_y_kop, w=lebar_kop)
-                        pdf.set_y(posisi_y_kop + (lebar_kop/4) + 5) 
+                        # Kita gunakan variabel yang berasal dari slider sidebar Bapak
+                        # Jika nama variabel di slider Bapak adalah 'posisi_y_kop' dan 'lebar_kop'
+                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop)
+                        # Memberikan jarak setelah gambar (mengikuti spasi_bawah dari sidebar)
+                        pdf.set_y(10 + (lebar_kop/4) + 5) 
+                        pdf.ln(spasi_bawah / 2) # Menggunakan variabel 'spasi_bawah' dari sidebar
                     else:
                         pdf.set_font("Arial", "B", 16)
                         pdf.cell(0, 10, "LAPORAN KERJA & BIAYA LAPANGAN", ln=True, align="C")
                     
-                    # Garis pembatas (Sama dengan preview)
+                    # Garis pembatas
                     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-                    pdf.ln(spasi_bawah_kop / 3)
+                    pdf.ln(5)
                     
-                    # Identitas (Layout 2 kolom seperti preview)
+                    # Identitas (Layout 2 kolom)
                     pdf.set_font("Arial", "", 11)
                     pdf.cell(95, 7, f"Tanggal: {tgl_iso}", 0)
                     pdf.cell(95, 7, f"Oleh: {nama}", 0, ln=True)
                     pdf.multi_cell(0, 7, f"Detail Pekerjaan: {keperluan}")
                     pdf.ln(5)
                     
-                    # TABEL RINCIAN BIAYA (Agar persis seperti preview)
+                    # TABEL RINCIAN BIAYA
                     pdf.set_font("Arial", "B", 11)
-                    pdf.set_fill_color(240, 240, 240) # Warna abu muda untuk header
+                    pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori", 1, 0, 'L', True)
                     pdf.cell(60, 10, " Jumlah (Rp)", 1, 1, 'L', True)
                     
@@ -164,6 +167,51 @@ if check_password():
                     pdf.set_font("Arial", "B", 11)
                     pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True)
                     pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
+                    
+                    # 3. Proses Lampiran Nota
+                    temp_nota_files = []
+                    if bukti_files:
+                        pdf.add_page()
+                        pdf.set_font("Arial", "B", 12)
+                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        for i, f in enumerate(bukti_files):
+                            img_nota = Image.open(f).convert("RGB")
+                            tmp_name = f"final_nota_{i}.jpg"
+                            img_nota.save(tmp_name, "JPEG")
+                            temp_nota_files.append(tmp_name)
+                            pdf.image(tmp_name, x=10, w=lebar_nota)
+                            pdf.ln(5)
+                    
+                    # 4. Simpan PDF utama ke file fisik sementara
+                    main_pdf_temp = "main_final_render.pdf"
+                    pdf.output(main_pdf_temp)
+                    
+                    # 5. Gabungkan menggunakan PdfWriter
+                    merger = PdfWriter()
+                    merger.append(main_pdf_temp)
+                    
+                    if report_file:
+                        report_file.seek(0)
+                        merger.append(report_file)
+                    
+                    # 6. Tulis hasil akhir
+                    final_pdf_buffer = io.BytesIO()
+                    merger.write(final_pdf_buffer)
+                    
+                    # Bersihkan file
+                    if os.path.exists(main_pdf_temp): os.remove(main_pdf_temp)
+                    for tmp in temp_nota_files:
+                        if os.path.exists(tmp): os.remove(tmp)
+                    
+                    st.success("✅ Laporan Berhasil Dibuat!")
+                    st.download_button(
+                        label="📥 Download Hasil Akhir PDF",
+                        data=final_pdf_buffer.getvalue(),
+                        file_name=f"Laporan_{mesin}_{tgl_iso}.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.error(f"Terjadi kesalahan teknis: {str(e)}")
                     
                     # 3. Proses Lampiran Nota (Halaman Baru)
                     temp_nota_files = []
