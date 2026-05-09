@@ -21,7 +21,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-# --- PENTING: GANTI ID FOLDER BARU DI SINI ---
+# GANTI DENGAN ID FOLDER BARU YANG SUDAH DI-SHARE SEBAGAI EDITOR
 PARENT_FOLDER_ID = "1CODLFKhki8SUL4Ijr7XaqE-x9tQjb6ev" 
 KOP_FILE_PATH = "kop_tetap.jpg"
 
@@ -60,19 +60,20 @@ def upload_to_gdrive(file_buffer, file_name):
             'parents': [PARENT_FOLDER_ID]
         }
         
+        # Resumable upload untuk file yang lebih stabil
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
         
-        # Eksekusi upload dengan parameter 'supportsAllDrives'
+        # supportsAllDrives=True wajib agar robot bisa menulis ke folder Bapak
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
-            supportsAllDrives=True # Mengizinkan robot menulis ke folder Bapak
+            supportsAllDrives=True
         ).execute()
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error(f"⚠️ KUOTA ROBOT PENUH! \n\nLakukan ini: \n1. Buat FOLDER BARU di Drive Bapak. \n2. Share folder itu ke: laporanpengeluaran@compact-flash-495405-h3.iam.gserviceaccount.com sebagai EDITOR. \n3. Copy ID folder baru ke kode PARENT_FOLDER_ID.")
+            st.error("⚠️ KUOTA ROBOT PENUH! \n\nPastikan Bapak sudah membuat FOLDER BARU, membagikannya ke email robot sebagai EDITOR, dan mengganti PARENT_FOLDER_ID di kode.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
