@@ -33,14 +33,26 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
-        file_metadata = {'name': file_name, 'parents': [PARENT_FOLDER_ID]}
+        file_metadata = {
+            'name': file_name,
+            'parents': [PARENT_FOLDER_ID]
+        }
+        # Gunakan BytesIO untuk memastikan pointer berada di awal
+        file_buffer.seek(0)
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
-        file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
+        
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id, webViewLink',
+            supportsAllDrives=True # Penting jika menggunakan Shared Drive
+        ).execute()
+        
         return file.get('id')
     except Exception as e:
-        st.error(f"Gagal upload ke Drive: {e}")
+        # Menampilkan detail error agar mudah dilacak
+        st.error(f"⚠️ Detail Error Drive: {str(e)}")
         return None
-
 def append_to_sheets(nama_user, data):
     try:
         service = get_gcp_service('sheets', 'v4')
