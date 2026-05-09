@@ -22,7 +22,7 @@ USERS_CREDENTIALS = {
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 # Folder ini harus sudah di-share ke email Service Account sebagai 'Editor'
-PARENT_FOLDER_ID = "1zU_b_6865osGILgOsY_usiM6LrR6IbFE" 
+PARENT_FOLDER_ID = "1IBUHpijE6eXHIghUMbcUKEHlbOW5ehKY" 
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. SISTEM LOGIN ---
@@ -57,7 +57,7 @@ def upload_to_gdrive(file_buffer, file_name):
         # Metadata tegas mengarah ke folder Bapak
         file_metadata = {
             'name': file_name,
-            'parents': [1IBUHpijE6eXHIghUMbcUKEHlbOW5ehKY]
+            'parents': [PARENT_FOLDER_ID]
         }
         
         # Gunakan media upload dengan resumable=True
