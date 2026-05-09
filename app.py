@@ -133,43 +133,38 @@ if check_password():
             report_file = st.file_uploader("📄 Service Report", type=['pdf'])
             btn_sub = st.form_submit_button("💾 SIMPAN & DOWNLOAD PDF")
 
-        if btn_sub:
-            with st.spinner("Sedang memproses..."):
-                try:
-                    total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
-                    tgl_iso = tgl_input.strftime('%Y-%m-%d')
-                    
-                    # 1. Simpan ke Sheets
-                    append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
-                    
-                    # 2. Buat PDF (Halaman 1 dengan Kop)
-                    pdf = FPDF()
-                    pdf.add_page()
-                    
-                    # 2. Buat PDF (Halaman 1 dengan Kop)
-                    pdf = FPDF()
-                    pdf.add_page()
-                    
-                    # LOGIKA KOP SURAT (PT. FINPAC)
-                    if kop_exist:
-                        # Kita letakkan Kop di koordinat y=10
-                        pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
-                        
-                        # --- PERBAIKAN DI SINI ---
-                        # Kita gunakan spasi_bawah sebagai jarak aman
-                        # Jika kop Bapak tinggi, naikkan slider 'Spasi Bawah' di Sidebar
-                        pdf.set_y(10 + spasi_bawah) 
-                    else:
-                        pdf.ln(10) # Jarak standar jika tidak ada kop
-                    
-                    # Cetak Header Laporan
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 7, f"Customer: {customer}", ln=True)
-                    pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
-                    pdf.set_font("Arial", "", 11)
-                    pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}")
-                    pdf.ln(5)
-                    
+        # --- BAGIAN PENTING DI DALAM PROSES SIMPAN ---
+if btn_sub:
+    with st.spinner("Sedang memproses..."):
+        try:
+            total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
+            tgl_iso = tgl_input.strftime('%Y-%m-%d')
+            
+            # 1. Simpan ke Sheets tetap berjalan
+            append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
+            
+            # 2. Buat PDF (Logika Anti-Numpuk)
+            pdf = FPDF()
+            pdf.add_page()
+            
+            if kop_exist:
+                # Letakkan gambar
+                pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
+                # Paksa posisi teks turun ke titik aman (10mm + slider spasi)
+                pdf.set_y(10 + spasi_bawah) 
+            else:
+                pdf.set_y(20) # Jarak standar jika kop tidak ada
+
+            # Teks Header
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(0, 7, f"Customer: {customer}", ln=True)
+            pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
+            pdf.ln(2)
+            pdf.set_font("Arial", "", 11)
+            pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}")
+            pdf.ln(5)
+
+            # ... sisa kode tabel biaya dan lampiran ...                    
                     # Tabel Biaya
                     pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True)
