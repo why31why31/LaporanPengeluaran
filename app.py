@@ -22,7 +22,7 @@ USERS_CREDENTIALS = {
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 # Pastikan ID Folder baru ini sudah di-share ke robot sebagai EDITOR
-PARENT_FOLDER_ID = "1CODLFKhki8SUL4Ijr7XaqE-x9tQjb6ev"
+PARENT_FOLDER_ID = "1bv3NtJWUaREyadNcXwOr_GXxnpLSFHx1"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. SISTEM LOGIN ---
@@ -53,36 +53,50 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
+        
+        # Metadata tegas agar file masuk ke folder Bapak
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
         }
+        
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
+        
+        # 1. Eksekusi upload
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
             supportsAllDrives=True
         ).execute()
-        return file.get('id')
+        
+        file_id = file.get('id')
+        
+        # 2. PINDAHKAN KEPEMILIKAN (Agar tidak kena kuota robot)
+        # Kita tambahkan izin khusus agar Bapak jadi owner file tersebut
+        try:
+            permission = {
+                'type': 'user',
+                'role': 'owner',
+                'emailAddress': 'why31why31@gmail.com' # <--- GANTI DENGAN GMAIL BAPAK
+            }
+            service.permissions().create(
+                fileId=file_id,
+                body=permission,
+                transferOwnership=True,
+                supportsAllDrives=True
+            ).execute()
+        except:
+            pass # Jika gagal transfer, tetap lanjut
+            
+        return file_id
+        
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ KUOTA ROBOT PENUH! Pastikan Folder sudah di-share ke robot sebagai EDITOR.")
+            st.error("⚠️ KUOTA ROBOT TETAP PENUH! \n\nSolusi Terakhir: Bapak harus buat FOLDER BARU di Drive, lalu share ke robot sebagai EDITOR. ID Folder lama kemungkinan sudah 'terkunci' oleh sistem Google.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
-
-def append_to_sheets(nama_user, data):
-    service = get_gcp_service('sheets', 'v4')
-    spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-    sheet_names = [s.get('properties', {}).get('title') for s in spreadsheet.get('sheets', [])]
-    if nama_user not in sheet_names:
-        batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
-        service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-        header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "Total"]]
-        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
-    service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
-
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
