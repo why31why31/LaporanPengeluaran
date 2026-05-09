@@ -20,7 +20,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-KOP_FILE_PATH = "kop_tetap.jpg" # Pastikan file ini ada di folder yang sama dengan app.py
+KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. FUNGSI GOOGLE SHEETS ---
 def get_gcp_service(service_name, version):
@@ -98,18 +98,16 @@ if check_password():
             
         opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
-        spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
+        spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
         lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
-        
-        # Cek apakah file kop ada
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
         with st.form("main_form", clear_on_submit=False):
             if kop_exist: 
                 st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
             else:
-                st.warning("⚠️ File 'kop_tetap.jpg' tidak ditemukan. Kop tidak akan muncul di PDF.")
-            
+                st.warning("⚠️ File 'kop_tetap.jpg' tidak ditemukan.")
+                
             c_id1, c_id2 = st.columns(2)
             nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
             tgl_input = c_id2.date_input("Tanggal Tugas", datetime.now())
@@ -133,44 +131,39 @@ if check_password():
             report_file = st.file_uploader("📄 Service Report", type=['pdf'])
             btn_sub = st.form_submit_button("💾 SIMPAN & DOWNLOAD PDF")
 
-        # --- BAGIAN PENTING DI DALAM PROSES SIMPAN ---
-if btn_sub:
-    with st.spinner("Sedang memproses..."):
-        try:
-            total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
-            tgl_iso = tgl_input.strftime('%Y-%m-%d')
-            
-            # 1. Simpan ke Sheets tetap berjalan
-            append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
-            
-            # 2. Buat PDF (Logika Anti-Numpuk)
-            pdf = FPDF()
-            pdf.add_page()
-            
-            if kop_exist:
-                # Letakkan gambar
-                pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
-                # Paksa posisi teks turun ke titik aman (10mm + slider spasi)
-                pdf.set_y(10 + spasi_bawah) 
-            else:
-                pdf.set_y(20) # Jarak standar jika kop tidak ada
-
-            # Teks Header
-            pdf.set_font("Arial", "B", 11)
-            pdf.cell(0, 7, f"Customer: {customer}", ln=True)
-            pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
-            pdf.ln(2)
-            pdf.set_font("Arial", "", 11)
-            pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}")
-            pdf.ln(5)
-
-            # ... sisa kode tabel biaya dan lampiran ...                    
-                    # Tabel Biaya
+        if btn_sub:
+            with st.spinner("Sedang memproses..."):
+                try:
+                    total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
+                    tgl_iso = tgl_input.strftime('%Y-%m-%d')
+                    
+                    # 1. Simpan ke Sheets
+                    append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
+                    
+                    # 2. Buat PDF
+                    pdf = FPDF()
+                    pdf.add_page()
+                    
+                    if kop_exist:
+                        pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
+                        pdf.set_y(10 + spasi_bawah) 
+                    else:
+                        pdf.set_y(20)
+                    
+                    pdf.set_font("Arial", "B", 11)
+                    pdf.cell(0, 7, f"Customer: {customer}", ln=True)
+                    pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
+                    pdf.ln(2)
+                    pdf.set_font("Arial", "", 11)
+                    pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}")
+                    pdf.ln(5)
+                    
+                    # TABEL BIAYA
                     pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True)
                     pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
-                    
                     pdf.set_font("Arial", "", 11)
+                    
                     dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Alat/Bahan": bahan_alat}
                     for k, v in dict_b.items():
                         if v > 0:
@@ -181,13 +174,11 @@ if btn_sub:
                     pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True)
                     pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
-                    # Halaman Lampiran (Tanpa Kop sesuai permintaan)
+                    # LAMPIRAN
                     temp_n = []; nota_pdfs = []
                     if bukti_files:
                         pdf.add_page()
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
-                        pdf.ln(5)
+                        pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
                         for i, f in enumerate(bukti_files):
                             if f.type == "application/pdf":
                                 nota_pdfs.append(f)
@@ -196,34 +187,25 @@ if btn_sub:
                                 t_n = f"temp_nota_{i}.jpg"
                                 img.save(t_n, "JPEG")
                                 temp_n.append(t_n)
-                                pdf.image(t_n, x=10, w=lebar_nota)
-                                pdf.ln(10)
+                                pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
 
-                    # Penggabungan File
                     main_out = "temp_render.pdf"
                     pdf.output(main_out)
-                    
-                    merger = PdfWriter()
-                    merger.append(main_out)
+                    merger = PdfWriter(); merger.append(main_out)
                     for n_pdf in nota_pdfs:
                         merger.append(io.BytesIO(n_pdf.read()))
                     if report_file:
                         merger.append(io.BytesIO(report_file.read()))
                     
-                    f_buf = io.BytesIO()
-                    merger.write(f_buf)
-                    f_buf.seek(0)
+                    f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                     
-                    # Bersihkan file sementara
                     if os.path.exists(main_out): os.remove(main_out)
-                    for t in temp_n:
-                        if os.path.exists(t): os.remove(t)
+                    for t in temp_n: os.remove(t)
                             
                     st.success(f"✅ Data {customer} Berhasil Disimpan!")
                     st.download_button("📥 KLIK DI SINI UNTUK DOWNLOAD PDF", f_buf.getvalue(), f"Laporan_{customer}_{tgl_iso}.pdf")
-                    
                 except Exception as e:
-                    st.error(f"Gagal memproses PDF: {e}")
+                    st.error(f"Gagal: {e}")
 
     with tab2:
         st.header(f"📊 Riwayat: {st.session_state.user_nama}")
