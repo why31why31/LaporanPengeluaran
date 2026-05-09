@@ -38,7 +38,8 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total", "Link GDrive"]]
+            # Header disesuaikan dengan kolom ke-11 sebagai Lain-lain
+            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
         service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
@@ -71,22 +72,21 @@ def get_user_data(nama_user):
 def update_gdrive_link(nama_user, row_index, link, label):
     try:
         service = get_gcp_service('sheets', 'v4')
-        # PERBAIKAN: Menggunakan titik koma (;) sesuai standar Google Sheets Indonesia
         formula = f'=HYPERLINK("{link}"; "{label}")'
-        target_range = f"'{nama_user}'!M{row_index}"
-        
+        range_name = f"'{nama_user}'!M{row_index}"
         body = {'values': [[formula]]}
         
         service.spreadsheets().values().update(
-            spreadsheetId=SPREADSHEET_ID,
-            range=target_range,
-            valueInputOption="USER_ENTERED",
+            spreadsheetId=SPREADSHEET_ID, 
+            range=range_name, 
+            valueInputOption="USER_ENTERED", 
             body=body
         ).execute()
         return True
     except Exception as e:
         st.error(f"Gagal update link: {e}")
         return False
+
 def delete_user_row(nama_user, row_index):
     try:
         service = get_gcp_service('sheets', 'v4')
@@ -127,7 +127,8 @@ if check_password():
             st.session_state.password_correct = False
             st.rerun()
             
-        opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
+        # Perubahan Nama di Sini: Bahan/Alat -> Lain-lain
+        opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
         spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
         lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
@@ -147,7 +148,7 @@ if check_password():
             detail = st.text_area("Detail Pekerjaan:")
             keperluan = f"[{mesin}] {detail}"
             
-            bensin = toll = parkir = makan_teknisi = uang_makan = hotel = bahan_alat = 0
+            bensin = toll = parkir = makan_teknisi = uang_makan = hotel = lain_lain = 0
             col_a, col_b = st.columns(2)
             if "Bensin" in opsi_biaya: bensin = col_a.number_input("Bensin", min_value=0)
             if "Toll" in opsi_biaya: toll = col_b.number_input("Toll", min_value=0)
@@ -156,7 +157,8 @@ if check_password():
             if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
             if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
             if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
-            if "Bahan/Alat" in opsi_biaya: bahan_alat = st.number_input("Bahan/Alat", min_value=0)
+            # Perubahan Nama di Sini: Bahan/Alat -> Lain-lain
+            if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0)
             
             bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
             report_file = st.file_uploader("📄 Service Report", type=['pdf'])
@@ -165,10 +167,10 @@ if check_password():
         if btn_sub:
             with st.spinner("Sedang memproses..."):
                 try:
-                    total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
+                    total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + lain_lain
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total, ""])
+                    append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, ""])
                     
                     pdf = FPDF()
                     pdf.add_page()
@@ -187,7 +189,8 @@ if check_password():
                     pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
                     pdf.set_font("Arial", "", 11)
-                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Alat/Bahan": bahan_alat}
+                    # Label PDF juga diubah
+                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
                     for k, v in dict_b.items():
                         if v > 0:
                             pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
@@ -223,7 +226,6 @@ if check_password():
         if not df.empty:
             df['original_row_index'] = df.index + 2
             for i, row in df.iterrows():
-                # Persiapkan Label untuk Hyperlink (Contoh: Customer_09/05/2026)
                 tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
                 cust_name = row.get('Customer', 'Unknown')
                 label_hyperlink = f"{cust_name}_{tgl_str}"
@@ -231,12 +233,10 @@ if check_password():
                 with st.expander(f"📅 {tgl_str} - {cust_name}"):
                     st.markdown(f"**Customer:** {cust_name}")
                     
-                    # Deteksi apakah kolom M berisi link atau rumus hyperlink
                     raw_link = row.iloc[12] if len(row) >= 13 else ""
                     display_link = ""
                     
                     if 'HYPERLINK' in str(raw_link):
-                        # Ekstrak URL saja dari dalam rumus HYPERLINK
                         urls = re.findall(r'"(http[^"]+)"', str(raw_link))
                         if urls: display_link = urls[0]
                     elif str(raw_link).startswith("http"):
@@ -257,8 +257,8 @@ if check_password():
                                 st.rerun()
 
                     st.divider()
-                    # Rincian Biaya
-                    list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Alat": "Alat"}
+                    # Rincian Biaya disesuaikan labelnya
+                    list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Lain-lain": "Lain-lain"}
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
                         try:
