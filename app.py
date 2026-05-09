@@ -21,7 +21,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-# Folder ini harus sudah di-share ke email Service Account sebagai 'Editor'
+# --- PENTING: GANTI ID FOLDER BARU DI SINI ---
 PARENT_FOLDER_ID = "1IBUHpijE6eXHIghUMbcUKEHlbOW5ehKY" 
 KOP_FILE_PATH = "kop_tetap.jpg"
 
@@ -54,32 +54,29 @@ def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         
-        # Metadata tegas mengarah ke folder Bapak
+        # Metadata tegas agar file masuk ke folder Bapak
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
         }
         
-        # Gunakan media upload dengan resumable=True
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
         
-        # Tambahkan supportsAllDrives=True untuk menembus batasan kuota Service Account
+        # Eksekusi upload dengan parameter 'supportsAllDrives'
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
-            supportsAllDrives=True,
-            supportsTeamDrives=True
+            supportsAllDrives=True # Mengizinkan robot menulis ke folder Bapak
         ).execute()
-        
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            # Pesan khusus jika masih mentok di kuota
-            st.error("⚠️ Masalah Kuota: Robot tidak bisa menulis. Coba buat FOLDER BARU di Drive Bapak, share ke robot, dan ganti ID foldernya di kodingan.")
+            st.error(f"⚠️ KUOTA ROBOT PENUH! \n\nLakukan ini: \n1. Buat FOLDER BARU di Drive Bapak. \n2. Share folder itu ke: laporanpengeluaran@compact-flash-495405-h3.iam.gserviceaccount.com sebagai EDITOR. \n3. Copy ID folder baru ke kode PARENT_FOLDER_ID.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
+
 def append_to_sheets(nama_user, data):
     service = get_gcp_service('sheets', 'v4')
     spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
@@ -192,7 +189,7 @@ if check_password():
                     
                     f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                     
-                    # --- EKSEKUSI UPLOAD ---
+                    # --- UPLOAD ---
                     drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
