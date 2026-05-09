@@ -54,29 +54,32 @@ def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
         
-        # Metadata menyertakan 'parents' agar menggunakan kuota folder Bapak
+        # Metadata tegas mengarah ke folder Bapak
         file_metadata = {
             'name': file_name,
-            'parents': [PARENT_FOLDER_ID]
+            'parents': [1IBUHpijE6eXHIghUMbcUKEHlbOW5ehKY]
         }
         
+        # Gunakan media upload dengan resumable=True
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
         
-        # Eksekusi dengan supportsAllDrives=True untuk folder shared/pribadi
+        # Tambahkan supportsAllDrives=True untuk menembus batasan kuota Service Account
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
-            supportsAllDrives=True
+            supportsAllDrives=True,
+            supportsTeamDrives=True
         ).execute()
+        
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ Kuota Penuh: Pastikan Folder Drive sudah di-share ke email Service Account sebagai Editor.")
+            # Pesan khusus jika masih mentok di kuota
+            st.error("⚠️ Masalah Kuota: Robot tidak bisa menulis. Coba buat FOLDER BARU di Drive Bapak, share ke robot, dan ganti ID foldernya di kodingan.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
-
 def append_to_sheets(nama_user, data):
     service = get_gcp_service('sheets', 'v4')
     spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
