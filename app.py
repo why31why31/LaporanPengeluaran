@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 import io
 import os
 from PIL import Image
+import re
 
 # --- 1. KONFIGURASI ---
 USERS_CREDENTIALS = {
@@ -70,11 +71,18 @@ def get_user_data(nama_user):
 def update_gdrive_link(nama_user, row_index, link, label):
     try:
         service = get_gcp_service('sheets', 'v4')
-        # Format Hyperlink: =HYPERLINK("url", "label")
-        hyperlink_formula = f'=HYPERLINK("{link}", "{label}")'
+        # Membuat rumus HYPERLINK untuk Google Sheets
+        formula = f'=HYPERLINK("{link}", "{label}")'
         range_name = f"'{nama_user}'!M{row_index}"
-        body = {'values': [[hyperlink_formula]]}
-        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=range_name, valueInputOption="USER_ENTERED", body=body).execute()
+        body = {'values': [[formula]]}
+        
+        # Eksekusi Update ke Kolom M
+        service.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID, 
+            range=range_name, 
+            valueInputOption="USER_ENTERED", 
+            body=body
+        ).execute()
         return True
     except Exception as e:
         st.error(f"Gagal update link: {e}")
@@ -216,7 +224,7 @@ if check_password():
         if not df.empty:
             df['original_row_index'] = df.index + 2
             for i, row in df.iterrows():
-                # Persiapkan Label untuk Hyperlink (Customer_Tanggal)
+                # Persiapkan Label untuk Hyperlink (Contoh: Customer_09/05/2026)
                 tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
                 cust_name = row.get('Customer', 'Unknown')
                 label_hyperlink = f"{cust_name}_{tgl_str}"
@@ -224,32 +232,33 @@ if check_password():
                 with st.expander(f"📅 {tgl_str} - {cust_name}"):
                     st.markdown(f"**Customer:** {cust_name}")
                     
-                    # Logika deteksi link di kolom M
+                    # Deteksi apakah kolom M berisi link atau rumus hyperlink
                     raw_link = row.iloc[12] if len(row) >= 13 else ""
-                    # Karena isinya sekarang rumus, kita ambil URL-nya saja untuk tampilan di Streamlit
                     display_link = ""
+                    
                     if 'HYPERLINK' in str(raw_link):
-                        import re
+                        # Ekstrak URL saja dari dalam rumus HYPERLINK
                         urls = re.findall(r'"(http[^"]+)"', str(raw_link))
                         if urls: display_link = urls[0]
                     elif str(raw_link).startswith("http"):
-                        display_link = raw_link
+                        display_link = str(raw_link)
 
                     if display_link:
                         st.success(f"🔗 [Buka PDF: {label_hyperlink}]({display_link})")
                     
                     st.divider()
-                    st.write("🔗 **Input Link GDrive (Akan otomatis rapi di Sheets):**")
+                    st.write("🔗 **Update Link GDrive (Label otomatis rapi):**")
                     c_link, c_save = st.columns([3, 1])
                     with c_link:
                         link_val = st.text_input("Paste Link PDF:", value=display_link, key=f"link_txt_{i}", label_visibility="collapsed")
                     with c_save:
                         if st.button("💾 Simpan", key=f"btn_link_{i}"):
                             if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val, label_hyperlink):
-                                st.toast("Link berhasil dirapikan!", icon="✅")
+                                st.toast("Link berhasil disimpan!", icon="✅")
                                 st.rerun()
 
                     st.divider()
+                    # Rincian Biaya
                     list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Alat": "Alat"}
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
@@ -257,9 +266,11 @@ if check_password():
                             val = float(str(nilai).replace(',', ''))
                             if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
                         except: continue
+                    
                     st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                    if st.button(f"🗑️ Hapus Laporan", key=f"del_lap_{i}"):
+                    
+                    if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
                         delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
-                        st.success("Dihapus!"); st.rerun()
+                        st.success("Data berhasil dihapus!"); st.rerun()
         else:
             st.info("Belum ada data riwayat.")
