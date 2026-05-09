@@ -33,37 +33,28 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
-        
-        # Metadata minimalis tapi wajib ada 'parents'
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID] 
         }
-        
         file_buffer.seek(0)
-        media = MediaIoBaseUpload(
-            file_buffer, 
-            mimetype='application/pdf', 
-            resumable=True
-        )
-        
-        # Eksekusi dengan supportsAllDrives agar Google tahu ini folder shared
+        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
             supportsAllDrives=True
         ).execute()
-        
         return file.get('id')
     except Exception as e:
-        # Jika error 403 muncul lagi, kita berikan instruksi langsung di layar
         if "storageQuotaExceeded" in str(e):
             st.error("❌ Masalah Google Drive: Google tetap menolak kuota robot.")
-            st.info("Saran: Gunakan tombol 'Download PDF' di bawah untuk simpan manual sementara.")
+            st.info("Saran: Gunakan tombol 'Download PDF' di bawah untuk simpan manual.")
         else:
             st.error(f"Gagal upload: {e}")
-        return Nonedef append_to_sheets(nama_user, data):
+        return None
+
+def append_to_sheets(nama_user, data):
     try:
         service = get_gcp_service('sheets', 'v4')
         spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
@@ -85,11 +76,9 @@ def get_user_data(nama_user):
         result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:L").execute()
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
-        
         df = pd.DataFrame(values[1:], columns=values[0])
-        # --- LOGIKA AUTO-SORT TANGGAL ---
         df['Tanggal'] = pd.to_datetime(df['Tanggal'])
-        df = df.sort_values(by='Tanggal', ascending=False) # Tanggal terbaru tetap di atas
+        df = df.sort_values(by='Tanggal', ascending=False)
         return df
     except: return pd.DataFrame()
 
@@ -137,16 +126,13 @@ if check_password():
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
         spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
         lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
-        
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
         with st.form("main_form", clear_on_submit=False):
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
-            
             c_id1, c_id2 = st.columns(2)
             nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
             tgl_input = c_id2.date_input("Tanggal Tugas", datetime.now())
-            
             customer = st.text_input("Nama Customer / Perusahaan:")
             mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Siebler", "MG2", "Frewitt", "Truking", "FrymaKoruma", "Stephan", "Lainnya"])
             detail = st.text_area("Detail Pekerjaan:")
@@ -159,7 +145,6 @@ if check_password():
             col_c, col_d = st.columns(2)
             if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
             if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
-            
             if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
             if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
             if "Bahan/Alat" in opsi_biaya: bahan_alat = st.number_input("Bahan/Alat", min_value=0)
@@ -173,28 +158,21 @@ if check_password():
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
-                    
                     append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
-                    # --- PDF DENGAN FILTER BIAYA 0 ---
                     pdf = FPDF(); pdf.add_page()
                     if kop_exist: pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
                     pdf.set_font("Arial", "B", 11)
                     pdf.cell(0, 7, f"Customer: {customer}", ln=True)
                     pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
-                    pdf.set_font("Arial", "", 11)
-                    pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
+                    pdf.set_font("Arial", "", 11); pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                     
                     pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
                     pdf.set_font("Arial", "", 11)
-                    
                     dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Alat/Bahan": bahan_alat}
-                    
                     for k, v in dict_b.items():
-                        if v > 0: # HANYA TAMPIL JIKA DIISI
-                            pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
-                    
+                        if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
                     pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
                     temp_n = []; nota_pdfs = []
@@ -225,37 +203,22 @@ if check_password():
         st.header(f"📊 Riwayat: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         if not df.empty:
-            # Kita simpan index asli Google Sheets agar tidak salah hapus
-            df['original_row_index'] = df.index + 2 # +2 karena header dan mulai dari 0
-            
-            # Tampilkan data (sudah terurut berdasarkan tanggal terbaru)
+            df['original_row_index'] = df.index + 2
             for i, row in df.iterrows():
                 with st.expander(f"📅 {row['Tanggal'].strftime('%Y-%m-%d')} - {row.get('Customer')} ({row.get('Keperluan')[:20]}...)"):
                     st.markdown(f"**Customer:** {row.get('Customer')}")
                     st.markdown("**Rincian Biaya:**")
-                    
                     list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Alat": "Alat"}
-                    
-                    ada_biaya = False
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
                         try:
                             val = float(str(nilai).replace(',', ''))
-                            if val > 0:
-                                st.write(f"✅ {label}: Rp {val:,.0f}")
-                                ada_biaya = True
+                            if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
                         except: continue
-                    
-                    if not ada_biaya: st.write("- Tidak ada rincian biaya.")
-
                     st.divider()
                     st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                    
-                    # TOMBOL HAPUS MUNCUL KEMBALI
                     if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_{i}"):
-                        # Hapus berdasarkan index asli di Google Sheets
                         delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
-                        st.success("Berhasil dihapus!")
-                        st.rerun()
+                        st.success("Berhasil dihapus!"); st.rerun()
         else:
             st.info("Belum ada data riwayat.")
