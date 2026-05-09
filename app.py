@@ -21,7 +21,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-PARENT_FOLDER_ID = "1ZaYzRulQY-SMh6KRllkRy3AAqUArf2nt"
+PARENT_FOLDER_ID = "15jPzBJqnLfQPZ3JkNxBJd6tc8xI20kzv"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. FUNGSI GOOGLE SERVICES (DIDEFINISIKAN DI ATAS) ---
@@ -33,22 +33,34 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
+        
+        # Metadata tegas agar file langsung "menumpang" di folder Bapak
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
         }
-        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
+        
+        media = MediaIoBaseUpload(
+            file_buffer, 
+            mimetype='application/pdf', 
+            resumable=True
+        )
+        
+        # Eksekusi upload
         file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
             supportsAllDrives=True
         ).execute()
+        
         return file.get('id')
     except Exception as e:
-        st.error(f"Gagal upload ke Drive: {e}")
+        if "storageQuotaExceeded" in str(e):
+            st.error("⚠️ Masalah Kuota: Robot tidak bisa menulis. Pastikan folder sudah di-share ke robot sebagai EDITOR.")
+        else:
+            st.error(f"Gagal upload ke Drive: {e}")
         return None
-
 def append_to_sheets(nama_user, data):
     """Fungsi untuk memasukkan data ke baris baru di Google Sheets"""
     try:
