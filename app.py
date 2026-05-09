@@ -50,7 +50,8 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total"]]
+            # Update Header: Tambahkan Kolom Customer
+            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
         service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
@@ -60,7 +61,7 @@ def append_to_sheets(nama_user, data):
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:K").execute()
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:L").execute()
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
         return pd.DataFrame(values[1:], columns=values[0])
@@ -107,20 +108,22 @@ if check_password():
             st.rerun()
             
         opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
-        
-        # --- KEMBALIKAN PENGATURAN UKURAN ---
-        st.sidebar.subheader("Pengaturan Layout PDF")
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
-        spasi_bawah = st.sidebar.slider("Spasi Bawah Kop (mm)", 10, 50, 35)
-        lebar_nota = st.sidebar.slider("Lebar Lampiran Nota (mm)", 50, 190, 150)
+        spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
+        lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
         
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
         with st.form("main_form", clear_on_submit=False):
             if kop_exist: st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
+            
             c_id1, c_id2 = st.columns(2)
-            nama = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
+            nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
             tgl_input = c_id2.date_input("Tanggal Tugas", datetime.now())
+            
+            # --- TAMBAHAN INPUT CUSTOMER ---
+            customer = st.text_input("Nama Customer / Perusahaan:")
+            
             mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Siebler", "MG2", "Frewitt", "Truking", "FrymaKoruma", "Stephan", "Lainnya"])
             detail = st.text_area("Detail Pekerjaan:")
             keperluan = f"[{mesin}] {detail}"
@@ -132,6 +135,7 @@ if check_password():
             col_c, col_d = st.columns(2)
             if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
             if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
+            
             if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
             if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
             if "Bahan/Alat" in opsi_biaya: bahan_alat = st.number_input("Bahan/Alat", min_value=0)
@@ -141,24 +145,27 @@ if check_password():
             btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
 
         if btn_sub:
-            with st.spinner("Proses..."):
+            with st.spinner("Sedang memproses..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # Simpan ke Sheets
-                    append_to_sheets(nama, [tgl_iso, nama, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
+                    # Simpan ke Sheets (Menambah kolom customer)
+                    append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
-                    # Create PDF
+                    # Buat PDF
                     pdf = FPDF(); pdf.add_page()
                     if kop_exist: pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
-                    pdf.set_font("Arial", "B", 11); pdf.cell(0, 7, f"Pelaksana: {nama} | Tanggal: {tgl_iso}", ln=True)
-                    pdf.set_font("Arial", "", 11); pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
+                    pdf.set_font("Arial", "B", 11)
+                    pdf.cell(0, 7, f"Customer: {customer}", ln=True)
+                    pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
+                    pdf.set_font("Arial", "", 11)
+                    pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                     
                     dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan": uang_makan, "Hotel": hotel, "Alat": bahan_alat}
                     for k, v in dict_b.items():
-                        if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" {v:,}", 1, 1)
-                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0); pdf.cell(60, 10, f" {total:,}", 1, 1)
+                        if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
+                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0); pdf.cell(60, 10, f" Rp {total:,}", 1, 1)
 
                     temp_n = []; nota_pdfs = []
                     if bukti_files:
@@ -175,14 +182,13 @@ if check_password():
                     if report_file: merger.append(io.BytesIO(report_file.read()))
                     
                     f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
-                    drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
+                    drive_id = upload_to_gdrive(f_buf, f"Laporan_{customer}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
-                    for t in temp_n: 
-                        if os.path.exists(t): os.remove(t)
+                    for t in temp_n: os.remove(t)
                             
-                    if drive_id: st.success("✅ Berhasil Disimpan & Upload ke Drive!")
-                    st.download_button("📥 Download PDF", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
+                    if drive_id: st.success(f"✅ Data {customer} Berhasil Disimpan!")
+                    st.download_button("📥 Download PDF", f_buf.getvalue(), f"Laporan_{customer}_{tgl_iso}.pdf")
                 except Exception as e: st.error(f"Gagal: {e}")
 
     with tab2:
@@ -191,35 +197,21 @@ if check_password():
         if not df.empty:
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
-                with st.expander(f"📅 {row.get('Tanggal')} - {row.get('Keperluan')}"):
+                with st.expander(f"📅 {row.get('Tanggal')} - {row.get('Customer')} ({row.get('Keperluan')[:20]}...)"):
+                    st.markdown(f"**Customer:** {row.get('Customer')}")
                     st.markdown("**Rincian Biaya yang Diinput:**")
                     
-                    # Daftar kategori yang akan dicek
-                    list_kategori = {
-                        "Bensin": "Bensin",
-                        "Toll": "Toll",
-                        "Parkir": "Parkir",
-                        "Makan Teknisi": "Makan Teknisi",
-                        "Uang Makan": "Uang Makan",
-                        "Hotel": "Hotel",
-                        "Bahan/Alat": "Alat" # Sesuaikan dengan nama kolom di Sheets Bapak
-                    }
+                    list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Alat": "Alat"}
                     
-                    # Menampilkan hanya yang nilainya lebih dari 0
                     ada_biaya = False
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
                         try:
-                            # Pastikan nilai dikonversi ke angka untuk pengecekan
                             if float(str(nilai).replace(',', '')) > 0:
-                                st.write(f"✅ **{label}:** Rp {nilai}")
+                                st.write(f"- {label}: Rp {nilai}")
                                 ada_biaya = True
-                        except:
-                            continue
+                        except: continue
                     
-                    if not ada_biaya:
-                        st.write("*Tidak ada rincian biaya tambahan.*")
-                        
                     st.divider()
                     st.subheader(f"Total: Rp {row.get('Total')}")
                     
