@@ -37,7 +37,8 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total"]]
+            # Tambahkan Header sampai kolom M
+            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total", "Link GDrive"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
         service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
@@ -47,14 +48,39 @@ def append_to_sheets(nama_user, data):
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:L").execute()
+        # Ambil sampai kolom M (kolom ke-13)
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:M").execute()
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
-        df = pd.DataFrame(values[1:], columns=values[0])
+        
+        # Pastikan jumlah kolom konsisten
+        max_cols = 13
+        processed_values = []
+        header = values[0]
+        
+        for row in values[1:]:
+            while len(row) < max_cols:
+                row.append("")
+            processed_values.append(row[:max_cols])
+            
+        df = pd.DataFrame(processed_values, columns=header)
         df['Tanggal'] = pd.to_datetime(df['Tanggal'])
         df = df.sort_values(by='Tanggal', ascending=False)
         return df
-    except: return pd.DataFrame()
+    except Exception as e:
+        return pd.DataFrame()
+
+def update_gdrive_link(nama_user, row_index, link):
+    try:
+        service = get_gcp_service('sheets', 'v4')
+        # Menulis ke kolom M (kolom ke-13)
+        range_name = f"'{nama_user}'!M{row_index}"
+        body = {'values': [[link]]}
+        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=range_name, valueInputOption="USER_ENTERED", body=body).execute()
+        return True
+    except Exception as e:
+        st.error(f"Gagal update link: {e}")
+        return False
 
 def delete_user_row(nama_user, row_index):
     try:
@@ -137,13 +163,12 @@ if check_password():
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # 1. Simpan ke Sheets
-                    append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
+                    # 1. Simpan ke Sheets (Kolom M dikosongkan dulu)
+                    append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total, ""])
                     
                     # 2. Buat PDF
                     pdf = FPDF()
                     pdf.add_page()
-                    
                     if kop_exist:
                         pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
                         pdf.set_y(10 + spasi_bawah) 
@@ -153,52 +178,34 @@ if check_password():
                     pdf.set_font("Arial", "B", 11)
                     pdf.cell(0, 7, f"Customer: {customer}", ln=True)
                     pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
-                    pdf.ln(2)
-                    pdf.set_font("Arial", "", 11)
-                    pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}")
-                    pdf.ln(5)
+                    pdf.ln(2); pdf.set_font("Arial", "", 11)
+                    pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                     
-                    # TABEL BIAYA
                     pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
-                    pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True)
-                    pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
+                    pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
                     pdf.set_font("Arial", "", 11)
-                    
                     dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Alat/Bahan": bahan_alat}
                     for k, v in dict_b.items():
                         if v > 0:
-                            pdf.cell(100, 8, f" {k}", 1)
-                            pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
-                    
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True)
-                    pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
+                            pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
+                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
-                    # LAMPIRAN
                     temp_n = []; nota_pdfs = []
                     if bukti_files:
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
+                        pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
                         for i, f in enumerate(bukti_files):
-                            if f.type == "application/pdf":
-                                nota_pdfs.append(f)
+                            if f.type == "application/pdf": nota_pdfs.append(f)
                             else:
-                                img = Image.open(f).convert("RGB")
-                                t_n = f"temp_nota_{i}.jpg"
-                                img.save(t_n, "JPEG")
-                                temp_n.append(t_n)
+                                img = Image.open(f).convert("RGB"); t_n = f"temp_nota_{i}.jpg"
+                                img.save(t_n, "JPEG"); temp_n.append(t_n)
                                 pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
 
-                    main_out = "temp_render.pdf"
-                    pdf.output(main_out)
+                    main_out = "temp_render.pdf"; pdf.output(main_out)
                     merger = PdfWriter(); merger.append(main_out)
-                    for n_pdf in nota_pdfs:
-                        merger.append(io.BytesIO(n_pdf.read()))
-                    if report_file:
-                        merger.append(io.BytesIO(report_file.read()))
+                    for n_pdf in nota_pdfs: merger.append(io.BytesIO(n_pdf.read()))
+                    if report_file: merger.append(io.BytesIO(report_file.read()))
                     
                     f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
-                    
                     if os.path.exists(main_out): os.remove(main_out)
                     for t in temp_n: os.remove(t)
                             
@@ -213,9 +220,26 @@ if check_password():
         if not df.empty:
             df['original_row_index'] = df.index + 2
             for i, row in df.iterrows():
-                with st.expander(f"📅 {row['Tanggal'].strftime('%Y-%m-%d')} - {row.get('Customer')} ({row.get('Keperluan')[:20]}...)"):
+                with st.expander(f"📅 {row['Tanggal'].strftime('%Y-%m-%d')} - {row.get('Customer')}"):
                     st.markdown(f"**Customer:** {row.get('Customer')}")
-                    st.markdown("**Rincian Biaya:**")
+                    
+                    # Cek Link di Kolom M (Index 12)
+                    current_link = row.iloc[12] if len(row) >= 13 else ""
+                    if current_link and str(current_link).startswith("http"):
+                        st.success(f"🔗 [Buka PDF Service Report di GDrive]({current_link})")
+                    
+                    st.divider()
+                    st.write("🔗 **Update Link GDrive (Kolom M):**")
+                    c_link, c_save = st.columns([3, 1])
+                    with c_link:
+                        link_val = st.text_input("Paste Link PDF:", value=current_link if str(current_link).startswith("http") else "", key=f"link_txt_{i}", label_visibility="collapsed")
+                    with c_save:
+                        if st.button("💾 Simpan", key=f"btn_link_{i}"):
+                            if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val):
+                                st.toast("Link tersimpan!", icon="✅")
+                                st.rerun()
+
+                    st.divider()
                     list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Alat": "Alat"}
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
@@ -223,10 +247,9 @@ if check_password():
                             val = float(str(nilai).replace(',', ''))
                             if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
                         except: continue
-                    st.divider()
                     st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                    if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_{i}"):
+                    if st.button(f"🗑️ Hapus Laporan", key=f"del_lap_{i}"):
                         delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
-                        st.success("Berhasil dihapus!"); st.rerun()
+                        st.success("Dihapus!"); st.rerun()
         else:
             st.info("Belum ada data riwayat.")
