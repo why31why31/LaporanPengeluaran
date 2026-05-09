@@ -24,7 +24,7 @@ SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 PARENT_FOLDER_ID = "15jPzBJqnLfQPZ3JkNxBJd6tc8xI20kzv"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
-# --- 2. FUNGSI GOOGLE SERVICES (DIDEFINISIKAN DI ATAS) ---
+# --- 2. FUNGSI GOOGLE SERVICES ---
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(info)
@@ -33,61 +33,34 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
-        
-        # Metadata tegas agar file langsung "menumpang" di folder Bapak
-        file_metadata = {
-            'name': file_name,
-            'parents': [PARENT_FOLDER_ID]
-        }
-        
-        media = MediaIoBaseUpload(
-            file_buffer, 
-            mimetype='application/pdf', 
-            resumable=True
-        )
-        
-        # Eksekusi upload
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        
+        file_metadata = {'name': file_name, 'parents': [PARENT_FOLDER_ID]}
+        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
+        file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
         return file.get('id')
     except Exception as e:
-        if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ Masalah Kuota: Robot tidak bisa menulis. Pastikan folder sudah di-share ke robot sebagai EDITOR.")
-        else:
-            st.error(f"Gagal upload ke Drive: {e}")
+        st.error(f"Gagal upload ke Drive: {e}")
         return None
+
 def append_to_sheets(nama_user, data):
-    """Fungsi untuk memasukkan data ke baris baru di Google Sheets"""
     try:
         service = get_gcp_service('sheets', 'v4')
         spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
         sheet_names = [s.get('properties', {}).get('title') for s in spreadsheet.get('sheets', [])]
         
-        # Jika nama user belum ada sheet-nya, buat baru
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "Total"]]
-            service.spreadsheets().values().update(
-                spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
-                valueInputOption="USER_ENTERED", body={'values': header}).execute()
+            header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total"]]
+            service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
-        # Tambahkan baris data
-        service.spreadsheets().values().append(
-            spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
-            valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
+        service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
     except Exception as e:
         st.error(f"Gagal simpan ke Sheets: {e}")
 
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:L").execute()
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:K").execute()
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
         return pd.DataFrame(values[1:], columns=values[0])
@@ -122,7 +95,7 @@ def check_password():
         return False
     return True
 
-# --- 4. MULAI APLIKASI UTAMA ---
+# --- 4. APLIKASI UTAMA ---
 if check_password():
     st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
     tab1, tab2 = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
@@ -133,8 +106,14 @@ if check_password():
             st.session_state.password_correct = False
             st.rerun()
             
-        opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
-        lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190); spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
+        opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
+        
+        # --- KEMBALIKAN PENGATURAN UKURAN ---
+        st.sidebar.subheader("Pengaturan Layout PDF")
+        lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
+        spasi_bawah = st.sidebar.slider("Spasi Bawah Kop (mm)", 10, 50, 35)
+        lebar_nota = st.sidebar.slider("Lebar Lampiran Nota (mm)", 50, 190, 150)
+        
         kop_exist = os.path.exists(KOP_FILE_PATH)
 
         with st.form("main_form", clear_on_submit=False):
@@ -153,7 +132,7 @@ if check_password():
             col_c, col_d = st.columns(2)
             if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
             if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
-            if "Uang Makan (Luar Kota)" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
+            if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
             if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
             if "Bahan/Alat" in opsi_biaya: bahan_alat = st.number_input("Bahan/Alat", min_value=0)
             
@@ -162,33 +141,33 @@ if check_password():
             btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
 
         if btn_sub:
-            with st.spinner("Proses simpan..."):
+            with st.spinner("Proses..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # MEMANGGIL FUNGSI SHEETS
+                    # Simpan ke Sheets
                     append_to_sheets(nama, [tgl_iso, nama, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
-                    # LOGIKA PDF...
+                    # Create PDF
                     pdf = FPDF(); pdf.add_page()
                     if kop_exist: pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
                     pdf.set_font("Arial", "B", 11); pdf.cell(0, 7, f"Pelaksana: {nama} | Tanggal: {tgl_iso}", ln=True)
                     pdf.set_font("Arial", "", 11); pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                     
-                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (Luar Kota)": uang_makan, "Hotel": hotel, "Bahan/Alat": bahan_alat}
+                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan": uang_makan, "Hotel": hotel, "Alat": bahan_alat}
                     for k, v in dict_b.items():
                         if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" {v:,}", 1, 1)
-                    pdf.cell(100, 10, " TOTAL", 1, 0); pdf.cell(60, 10, f" {total:,}", 1, 1)
+                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0); pdf.cell(60, 10, f" {total:,}", 1, 1)
 
                     temp_n = []; nota_pdfs = []
                     if bukti_files:
-                        pdf.add_page(); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
+                        pdf.add_page(); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
                         for i, f in enumerate(bukti_files):
                             if f.type == "application/pdf": nota_pdfs.append(f)
                             else:
                                 img = Image.open(f).convert("RGB"); t_n = f"n_usr_{i}.jpg"; img.save(t_n, "JPEG")
-                                temp_n.append(t_n); pdf.image(t_n, x=10, w=150); pdf.ln(5)
+                                temp_n.append(t_n); pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
 
                     main_out = "temp_render.pdf"; pdf.output(main_out)
                     merger = PdfWriter(); merger.append(main_out)
@@ -199,9 +178,10 @@ if check_password():
                     drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
-                    for t in temp_n: os.remove(t)
+                    for t in temp_n: 
+                        if os.path.exists(t): os.remove(t)
                             
-                    if drive_id: st.success("✅ Berhasil Disimpan!")
+                    if drive_id: st.success("✅ Berhasil Disimpan & Upload ke Drive!")
                     st.download_button("📥 Download PDF", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
                 except Exception as e: st.error(f"Gagal: {e}")
 
@@ -209,10 +189,27 @@ if check_password():
         st.header(f"📊 Riwayat: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         if not df.empty:
+            # Membalik urutan agar yang terbaru di atas
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
                 with st.expander(f"📅 {row.get('Tanggal')} - {row.get('Keperluan')}"):
-                    st.write(f"Total: {row.get('Total')}")
-                    if st.button(f"🗑️ Hapus Baris {i}", key=f"del_{i}"):
+                    # --- MENAMPILKAN RINCIAN BIAYA ---
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("**Rincian Biaya:**")
+                        st.write(f"- Bensin: Rp {row.get('Bensin')}")
+                        st.write(f"- Toll: Rp {row.get('Toll')}")
+                        st.write(f"- Parkir: Rp {row.get('Parkir')}")
+                        st.write(f"- Makan Teknisi: Rp {row.get('Makan Teknisi')}")
+                    with c2:
+                        st.write(f"- Uang Makan (LK): Rp {row.get('Uang Makan')}")
+                        st.write(f"- Hotel: Rp {row.get('Hotel')}")
+                        st.write(f"- Bahan/Alat: Rp {row.get('Alat')}")
+                        st.divider()
+                        st.subheader(f"Total: Rp {row.get('Total')}")
+                    
+                    if st.button(f"🗑️ Hapus Baris Ini", key=f"del_{row['index']}"):
                         delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
-                        st.success("Dihapus!"); st.rerun()
+                        st.success("Baris berhasil dihapus!"); st.rerun()
+        else:
+            st.info("Belum ada data riwayat.")
