@@ -203,26 +203,37 @@ if check_password():
         st.header(f"📊 Riwayat: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         if not df.empty:
-            # Dataframe df sudah di-sort berdasarkan tanggal di fungsi get_user_data
+            # Kita simpan index asli Google Sheets agar tidak salah hapus
+            df['original_row_index'] = df.index + 2 # +2 karena header dan mulai dari 0
+            
+            # Tampilkan data (sudah terurut berdasarkan tanggal terbaru)
             for i, row in df.iterrows():
                 with st.expander(f"📅 {row['Tanggal'].strftime('%Y-%m-%d')} - {row.get('Customer')} ({row.get('Keperluan')[:20]}...)"):
                     st.markdown(f"**Customer:** {row.get('Customer')}")
-                    st.markdown("**Rincian Biaya (Hanya yang diisi):**")
+                    st.markdown("**Rincian Biaya:**")
                     
                     list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Alat": "Alat"}
                     
+                    ada_biaya = False
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
                         try:
                             val = float(str(nilai).replace(',', ''))
                             if val > 0:
                                 st.write(f"✅ {label}: Rp {val:,.0f}")
+                                ada_biaya = True
                         except: continue
                     
+                    if not ada_biaya: st.write("- Tidak ada rincian biaya.")
+
                     st.divider()
                     st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
                     
-                    # Indeks untuk hapus tetap menggunakan index asli dari Sheets (perlu penyesuaian logika jika urutan berubah)
-                    st.info("Catatan: Gunakan menu Sheets untuk hapus data jika urutan tanggal sangat acak.")
+                    # TOMBOL HAPUS MUNCUL KEMBALI
+                    if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_{i}"):
+                        # Hapus berdasarkan index asli di Google Sheets
+                        delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
+                        st.success("Berhasil dihapus!")
+                        st.rerun()
         else:
             st.info("Belum ada data riwayat.")
