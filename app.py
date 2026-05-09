@@ -71,23 +71,22 @@ def get_user_data(nama_user):
 def update_gdrive_link(nama_user, row_index, link, label):
     try:
         service = get_gcp_service('sheets', 'v4')
-        # Membuat rumus HYPERLINK untuk Google Sheets
-        formula = f'=HYPERLINK("{link}", "{label}")'
-        range_name = f"'{nama_user}'!M{row_index}"
+        # PERBAIKAN: Menggunakan titik koma (;) sesuai standar Google Sheets Indonesia
+        formula = f'=HYPERLINK("{link}"; "{label}")'
+        target_range = f"'{nama_user}'!M{row_index}"
+        
         body = {'values': [[formula]]}
         
-        # Eksekusi Update ke Kolom M
         service.spreadsheets().values().update(
-            spreadsheetId=SPREADSHEET_ID, 
-            range=range_name, 
-            valueInputOption="USER_ENTERED", 
+            spreadsheetId=SPREADSHEET_ID,
+            range=target_range,
+            valueInputOption="USER_ENTERED",
             body=body
         ).execute()
         return True
     except Exception as e:
         st.error(f"Gagal update link: {e}")
         return False
-
 def delete_user_row(nama_user, row_index):
     try:
         service = get_gcp_service('sheets', 'v4')
