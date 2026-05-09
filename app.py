@@ -5,7 +5,6 @@ from fpdf import FPDF
 from pypdf import PdfWriter
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import io
 import os
 from PIL import Image
@@ -21,38 +20,13 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-PARENT_FOLDER_ID = "1OOpH4y7my_QeoKmCcfMZ7RZzLWlSH4Xz"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
-# --- 2. FUNGSI GOOGLE SERVICES ---
+# --- 2. FUNGSI GOOGLE SHEETS ---
 def get_gcp_service(service_name, version):
     info = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(info)
     return build(service_name, version, credentials=creds)
-
-def upload_to_gdrive(file_buffer, file_name):
-    try:
-        service = get_gcp_service('drive', 'v3')
-        file_metadata = {
-            'name': file_name,
-            'parents': [PARENT_FOLDER_ID] 
-        }
-        file_buffer.seek(0)
-        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        return file.get('id')
-    except Exception as e:
-        if "storageQuotaExceeded" in str(e):
-            st.error("❌ Masalah Google Drive: Google tetap menolak kuota robot.")
-            st.info("Saran: Gunakan tombol 'Download PDF' di bawah untuk simpan manual.")
-        else:
-            st.error(f"Gagal upload: {e}")
-        return None
 
 def append_to_sheets(nama_user, data):
     try:
@@ -151,15 +125,18 @@ if check_password():
             
             bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
             report_file = st.file_uploader("📄 Service Report", type=['pdf'])
-            btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
+            btn_sub = st.form_submit_button("💾 SIMPAN & DOWNLOAD PDF")
 
         if btn_sub:
             with st.spinner("Sedang memproses..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
+                    
+                    # 1. Simpan ke Sheets
                     append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
+                    # 2. Buat PDF
                     pdf = FPDF(); pdf.add_page()
                     if kop_exist: pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
                     pdf.set_font("Arial", "B", 11)
@@ -190,13 +167,15 @@ if check_password():
                     if report_file: merger.append(io.BytesIO(report_file.read()))
                     
                     f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
-                    drive_id = upload_to_gdrive(f_buf, f"Laporan_{customer}_{tgl_iso}.pdf")
                     
+                    # Bersihkan file sampah di server
                     if os.path.exists(main_out): os.remove(main_out)
-                    for t in temp_n: os.remove(t)
+                    for t in temp_n: 
+                        if os.path.exists(t): os.remove(t)
                             
-                    if drive_id: st.success(f"✅ Data {customer} Berhasil Disimpan!")
-                    st.download_button("📥 Download PDF", f_buf.getvalue(), f"Laporan_{customer}_{tgl_iso}.pdf")
+                    st.success(f"✅ Data {customer} Berhasil Disimpan ke Sheets!")
+                    # Tombol download muncul di sini
+                    st.download_button("📥 KLIK DI SINI UNTUK DOWNLOAD PDF", f_buf.getvalue(), f"Laporan_{customer}_{tgl_iso}.pdf")
                 except Exception as e: st.error(f"Gagal: {e}")
 
     with tab2:
