@@ -21,11 +21,77 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-# Pastikan ID Folder baru ini sudah di-share ke robot sebagai EDITOR
 PARENT_FOLDER_ID = "1ZaYzRulQY-SMh6KRllkRy3AAqUArf2nt?hl=in"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
-# --- 2. SISTEM LOGIN ---
+# --- 2. FUNGSI GOOGLE SERVICES (DIDEFINISIKAN DI ATAS) ---
+def get_gcp_service(service_name, version):
+    info = st.secrets["gcp_service_account"]
+    creds = service_account.Credentials.from_service_account_info(info)
+    return build(service_name, version, credentials=creds)
+
+def upload_to_gdrive(file_buffer, file_name):
+    try:
+        service = get_gcp_service('drive', 'v3')
+        file_metadata = {
+            'name': file_name,
+            'parents': [PARENT_FOLDER_ID]
+        }
+        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+        return file.get('id')
+    except Exception as e:
+        st.error(f"Gagal upload ke Drive: {e}")
+        return None
+
+def append_to_sheets(nama_user, data):
+    """Fungsi untuk memasukkan data ke baris baru di Google Sheets"""
+    try:
+        service = get_gcp_service('sheets', 'v4')
+        spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+        sheet_names = [s.get('properties', {}).get('title') for s in spreadsheet.get('sheets', [])]
+        
+        # Jika nama user belum ada sheet-nya, buat baru
+        if nama_user not in sheet_names:
+            batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
+            service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
+            header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "Total"]]
+            service.spreadsheets().values().update(
+                spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
+                valueInputOption="USER_ENTERED", body={'values': header}).execute()
+
+        # Tambahkan baris data
+        service.spreadsheets().values().append(
+            spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
+            valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
+    except Exception as e:
+        st.error(f"Gagal simpan ke Sheets: {e}")
+
+def get_user_data(nama_user):
+    try:
+        service = get_gcp_service('sheets', 'v4')
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:L").execute()
+        values = result.get('values', [])
+        if not values or len(values) < 2: return pd.DataFrame()
+        return pd.DataFrame(values[1:], columns=values[0])
+    except: return pd.DataFrame()
+
+def delete_user_row(nama_user, row_index):
+    try:
+        service = get_gcp_service('sheets', 'v4')
+        spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+        sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
+        request = {'deleteDimension': {'range': {'sheetId': sheet_id, 'dimension': 'ROWS', 'startIndex': row_index, 'endIndex': row_index + 1}}}
+        service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': [request]}).execute()
+    except Exception as e:
+        st.error(f"Gagal hapus baris: {e}")
+
+# --- 3. SISTEM LOGIN ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
@@ -44,76 +110,7 @@ def check_password():
         return False
     return True
 
-# --- 3. FUNGSI GOOGLE SERVICES ---
-def get_gcp_service(service_name, version):
-    info = st.secrets["gcp_service_account"]
-    creds = service_account.Credentials.from_service_account_info(info)
-    return build(service_name, version, credentials=creds)
-
-def upload_to_gdrive(file_buffer, file_name):
-    try:
-        service = get_gcp_service('drive', 'v3')
-        
-        # Metadata tegas agar file masuk ke folder Bapak
-        file_metadata = {
-            'name': file_name,
-            'parents': [PARENT_FOLDER_ID]
-        }
-        
-        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
-        
-        # 1. Eksekusi upload
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        
-        file_id = file.get('id')
-        
-        # 2. PINDAHKAN KEPEMILIKAN (Agar tidak kena kuota robot)
-        # Kita tambahkan izin khusus agar Bapak jadi owner file tersebut
-        try:
-            permission = {
-                'type': 'user',
-                'role': 'owner',
-                'emailAddress': 'finpacservice@gmail.com' # <--- GANTI DENGAN GMAIL BAPAK
-            }
-            service.permissions().create(
-                fileId=file_id,
-                body=permission,
-                transferOwnership=True,
-                supportsAllDrives=True
-            ).execute()
-        except:
-            pass # Jika gagal transfer, tetap lanjut
-            
-        return file_id
-        
-    except Exception as e:
-        if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ KUOTA ROBOT TETAP PENUH! \n\nSolusi Terakhir: Bapak harus buat FOLDER BARU di Drive, lalu share ke robot sebagai EDITOR. ID Folder lama kemungkinan sudah 'terkunci' oleh sistem Google.")
-        else:
-            st.error(f"Gagal upload ke Drive: {e}")
-        return None
-def get_user_data(nama_user):
-    try:
-        service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:L").execute()
-        values = result.get('values', [])
-        if not values or len(values) < 2: return pd.DataFrame()
-        return pd.DataFrame(values[1:], columns=values[0])
-    except: return pd.DataFrame()
-
-def delete_user_row(nama_user, row_index):
-    service = get_gcp_service('sheets', 'v4')
-    spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-    sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
-    request = {'deleteDimension': {'range': {'sheetId': sheet_id, 'dimension': 'ROWS', 'startIndex': row_index, 'endIndex': row_index + 1}}}
-    service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': [request]}).execute()
-
-# --- 4. MULAI APLIKASI ---
+# --- 4. MULAI APLIKASI UTAMA ---
 if check_password():
     st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
     tab1, tab2 = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
@@ -123,7 +120,7 @@ if check_password():
         if st.sidebar.button("Log Out"):
             st.session_state.password_correct = False
             st.rerun()
-        
+            
         opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190); spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
         kop_exist = os.path.exists(KOP_FILE_PATH)
@@ -153,27 +150,25 @@ if check_password():
             btn_sub = st.form_submit_button("💾 SIMPAN & UPLOAD")
 
         if btn_sub:
-            with st.spinner("Proses simpan dan upload..."):
+            with st.spinner("Proses simpan..."):
                 try:
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
+                    
+                    # MEMANGGIL FUNGSI SHEETS
                     append_to_sheets(nama, [tgl_iso, nama, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
+                    # LOGIKA PDF...
                     pdf = FPDF(); pdf.add_page()
-                    if kop_exist:
-                        pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
-                    pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
+                    if kop_exist: pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
                     pdf.set_font("Arial", "B", 11); pdf.cell(0, 7, f"Pelaksana: {nama} | Tanggal: {tgl_iso}", ln=True)
                     pdf.set_font("Arial", "", 11); pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                     
-                    pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
-                    pdf.cell(100, 10, " Kategori", 1, 0, 'L', True); pdf.cell(60, 10, " Biaya", 1, 1, 'L', True)
-                    pdf.set_font("Arial", "", 11)
                     dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (Luar Kota)": uang_makan, "Hotel": hotel, "Bahan/Alat": bahan_alat}
                     for k, v in dict_b.items():
                         if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" {v:,}", 1, 1)
-                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" {total:,}", 1, 1, 'L', True)
-                    
+                    pdf.cell(100, 10, " TOTAL", 1, 0); pdf.cell(60, 10, f" {total:,}", 1, 1)
+
                     temp_n = []; nota_pdfs = []
                     if bukti_files:
                         pdf.add_page(); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True)
@@ -182,40 +177,30 @@ if check_password():
                             else:
                                 img = Image.open(f).convert("RGB"); t_n = f"n_usr_{i}.jpg"; img.save(t_n, "JPEG")
                                 temp_n.append(t_n); pdf.image(t_n, x=10, w=150); pdf.ln(5)
-                    
+
                     main_out = "temp_render.pdf"; pdf.output(main_out)
                     merger = PdfWriter(); merger.append(main_out)
-                    for n_pdf in nota_pdfs:
-                        n_pdf.seek(0); merger.append(io.BytesIO(n_pdf.read()))
-                    if report_file:
-                        report_file.seek(0); merger.append(io.BytesIO(report_file.read()))
+                    for n_pdf in nota_pdfs: merger.append(io.BytesIO(n_pdf.read()))
+                    if report_file: merger.append(io.BytesIO(report_file.read()))
                     
                     f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                     drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
-                    for t in temp_n:
-                        if os.path.exists(t): os.remove(t)
+                    for t in temp_n: os.remove(t)
                             
-                    if drive_id:
-                        st.success(f"✅ Tersimpan di Sheets & Google Drive!")
-                    st.download_button("📥 Download PDF Manual", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
+                    if drive_id: st.success("✅ Berhasil Disimpan!")
+                    st.download_button("📥 Download PDF", f_buf.getvalue(), f"Laporan_{nama}_{tgl_iso}.pdf")
                 except Exception as e: st.error(f"Gagal: {e}")
 
     with tab2:
-        st.header(f"📊 Riwayat & Rincian: {st.session_state.user_nama}")
+        st.header(f"📊 Riwayat: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         if not df.empty:
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
-                with st.expander(f"📅 {row.get('Tanggal', 'N/A')} - {row.get('Keperluan', 'N/A')}"):
-                    v_makan = row.get('Uang Makan (Luar Kota)', row.get('Uang Makan (Luar kota)', row.get('Uang Makan', 0)))
-                    v_total = row.get('Total', row.get('total', 0))
-                    rincian = {
-                        "Kategori": ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "TOTAL"],
-                        "Nominal": [row.get('Bensin',0), row.get('Toll',0), row.get('Parkir',0), row.get('Makan Teknisi',0), v_makan, row.get('Hotel',0), row.get('Bahan/Alat',0), f"**{v_total}**"]
-                    }
-                    st.table(pd.DataFrame(rincian))
-                    if st.button(f"🗑️ Hapus {row.get('Tanggal', i)}", key=f"del_{row['index']}"):
+                with st.expander(f"📅 {row.get('Tanggal')} - {row.get('Keperluan')}"):
+                    st.write(f"Total: {row.get('Total')}")
+                    if st.button(f"🗑️ Hapus Baris {i}", key=f"del_{i}"):
                         delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
-                        st.success("Data dihapus!"); st.rerun()
+                        st.success("Dihapus!"); st.rerun()
