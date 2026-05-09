@@ -146,12 +146,23 @@ if check_password():
                     pdf = FPDF()
                     pdf.add_page()
                     
-                    # LOGIKA KOP SURAT
-                    if kop_exist:
-                        # Menghitung posisi tengah: (Lebar Kertas 210mm - Lebar Kop) / 2
-                        pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
-                        pdf.ln(spasi_bawah) # Memberikan jarak setelah gambar kop
+                    # 2. Buat PDF (Halaman 1 dengan Kop)
+                    pdf = FPDF()
+                    pdf.add_page()
                     
+                    # LOGIKA KOP SURAT (PT. FINPAC)
+                    if kop_exist:
+                        # Kita letakkan Kop di koordinat y=10
+                        pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
+                        
+                        # --- PERBAIKAN DI SINI ---
+                        # Kita gunakan spasi_bawah sebagai jarak aman
+                        # Jika kop Bapak tinggi, naikkan slider 'Spasi Bawah' di Sidebar
+                        pdf.set_y(10 + spasi_bawah) 
+                    else:
+                        pdf.ln(10) # Jarak standar jika tidak ada kop
+                    
+                    # Cetak Header Laporan
                     pdf.set_font("Arial", "B", 11)
                     pdf.cell(0, 7, f"Customer: {customer}", ln=True)
                     pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
