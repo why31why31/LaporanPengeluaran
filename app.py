@@ -21,8 +21,8 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-# GANTI DENGAN ID FOLDER BARU YANG SUDAH DI-SHARE SEBAGAI EDITOR
-PARENT_FOLDER_ID = "1CODLFKhki8SUL4Ijr7XaqE-x9tQjb6ev" 
+# Pastikan ID Folder baru ini sudah di-share ke robot sebagai EDITOR
+PARENT_FOLDER_ID = "1CODLFKhki8SUL4Ijr7XaqE-x9tQjb6ev"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. SISTEM LOGIN ---
@@ -53,17 +53,11 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
-        
-        # Metadata tegas agar file masuk ke folder Bapak
         file_metadata = {
             'name': file_name,
             'parents': [PARENT_FOLDER_ID]
         }
-        
-        # Resumable upload untuk file yang lebih stabil
         media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
-        
-        # supportsAllDrives=True wajib agar robot bisa menulis ke folder Bapak
         file = service.files().create(
             body=file_metadata,
             media_body=media,
@@ -73,7 +67,7 @@ def upload_to_gdrive(file_buffer, file_name):
         return file.get('id')
     except Exception as e:
         if "storageQuotaExceeded" in str(e):
-            st.error("⚠️ KUOTA ROBOT PENUH! \n\nPastikan Bapak sudah membuat FOLDER BARU, membagikannya ke email robot sebagai EDITOR, dan mengganti PARENT_FOLDER_ID di kode.")
+            st.error("⚠️ KUOTA ROBOT PENUH! Pastikan Folder sudah di-share ke robot sebagai EDITOR.")
         else:
             st.error(f"Gagal upload ke Drive: {e}")
         return None
@@ -82,18 +76,12 @@ def append_to_sheets(nama_user, data):
     service = get_gcp_service('sheets', 'v4')
     spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
     sheet_names = [s.get('properties', {}).get('title') for s in spreadsheet.get('sheets', [])]
-    
     if nama_user not in sheet_names:
         batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
         service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
         header = [["Tanggal", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat", "Total"]]
-        service.spreadsheets().values().update(
-            spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
-            valueInputOption="USER_ENTERED", body={'values': header}).execute()
-
-    service.spreadsheets().values().append(
-        spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1",
-        valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
+        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
+    service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
 
 def get_user_data(nama_user):
     try:
@@ -121,7 +109,7 @@ if check_password():
         if st.sidebar.button("Log Out"):
             st.session_state.password_correct = False
             st.rerun()
-            
+        
         opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan (Luar Kota)", "Hotel", "Bahan/Alat"], default=["Bensin", "Toll", "Parkir"])
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190); spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 50, 35)
         kop_exist = os.path.exists(KOP_FILE_PATH)
@@ -189,8 +177,6 @@ if check_password():
                         report_file.seek(0); merger.append(io.BytesIO(report_file.read()))
                     
                     f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
-                    
-                    # --- UPLOAD ---
                     drive_id = upload_to_gdrive(f_buf, f"Laporan_{nama}_{tgl_iso}.pdf")
                     
                     if os.path.exists(main_out): os.remove(main_out)
