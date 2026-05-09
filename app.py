@@ -21,7 +21,7 @@ USERS_CREDENTIALS = {
 }
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
-PARENT_FOLDER_ID = "15jPzBJqnLfQPZ3JkNxBJd6tc8xI20kzv"
+PARENT_FOLDER_ID = "1OOpH4y7my_QeoKmCcfMZ7RZzLWlSH4Xz"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. FUNGSI GOOGLE SERVICES ---
@@ -33,27 +33,37 @@ def get_gcp_service(service_name, version):
 def upload_to_gdrive(file_buffer, file_name):
     try:
         service = get_gcp_service('drive', 'v3')
+        
+        # Metadata minimalis tapi wajib ada 'parents'
         file_metadata = {
             'name': file_name,
-            'parents': [PARENT_FOLDER_ID]
+            'parents': [PARENT_FOLDER_ID] 
         }
-        # Gunakan BytesIO untuk memastikan pointer berada di awal
-        file_buffer.seek(0)
-        media = MediaIoBaseUpload(file_buffer, mimetype='application/pdf', resumable=True)
         
+        file_buffer.seek(0)
+        media = MediaIoBaseUpload(
+            file_buffer, 
+            mimetype='application/pdf', 
+            resumable=True
+        )
+        
+        # Eksekusi dengan supportsAllDrives agar Google tahu ini folder shared
         file = service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id, webViewLink',
-            supportsAllDrives=True # Penting jika menggunakan Shared Drive
+            fields='id',
+            supportsAllDrives=True
         ).execute()
         
         return file.get('id')
     except Exception as e:
-        # Menampilkan detail error agar mudah dilacak
-        st.error(f"⚠️ Detail Error Drive: {str(e)}")
-        return None
-def append_to_sheets(nama_user, data):
+        # Jika error 403 muncul lagi, kita berikan instruksi langsung di layar
+        if "storageQuotaExceeded" in str(e):
+            st.error("❌ Masalah Google Drive: Google tetap menolak kuota robot.")
+            st.info("Saran: Gunakan tombol 'Download PDF' di bawah untuk simpan manual sementara.")
+        else:
+            st.error(f"Gagal upload: {e}")
+        return Nonedef append_to_sheets(nama_user, data):
     try:
         service = get_gcp_service('sheets', 'v4')
         spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
