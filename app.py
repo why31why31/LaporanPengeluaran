@@ -22,7 +22,7 @@ USERS_CREDENTIALS = {
 
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 # Pastikan ID Folder baru ini sudah di-share ke robot sebagai EDITOR
-PARENT_FOLDER_ID = "1bv3NtJWUaREyadNcXwOr_GXxnpLSFHx1"
+PARENT_FOLDER_ID = "1ZaYzRulQY-SMh6KRllkRy3AAqUArf2nt?hl=in"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
 # --- 2. SISTEM LOGIN ---
@@ -78,7 +78,7 @@ def upload_to_gdrive(file_buffer, file_name):
             permission = {
                 'type': 'user',
                 'role': 'owner',
-                'emailAddress': 'why31why31@gmail.com' # <--- GANTI DENGAN GMAIL BAPAK
+                'emailAddress': 'finpacservice@gmail.com' # <--- GANTI DENGAN GMAIL BAPAK
             }
             service.permissions().create(
                 fileId=file_id,
