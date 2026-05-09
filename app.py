@@ -189,24 +189,39 @@ if check_password():
         st.header(f"📊 Riwayat: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         if not df.empty:
-            # Membalik urutan agar yang terbaru di atas
             df_display = df.iloc[::-1].reset_index()
             for i, row in df_display.iterrows():
                 with st.expander(f"📅 {row.get('Tanggal')} - {row.get('Keperluan')}"):
-                    # --- MENAMPILKAN RINCIAN BIAYA ---
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.markdown("**Rincian Biaya:**")
-                        st.write(f"- Bensin: Rp {row.get('Bensin')}")
-                        st.write(f"- Toll: Rp {row.get('Toll')}")
-                        st.write(f"- Parkir: Rp {row.get('Parkir')}")
-                        st.write(f"- Makan Teknisi: Rp {row.get('Makan Teknisi')}")
-                    with c2:
-                        st.write(f"- Uang Makan (LK): Rp {row.get('Uang Makan')}")
-                        st.write(f"- Hotel: Rp {row.get('Hotel')}")
-                        st.write(f"- Bahan/Alat: Rp {row.get('Alat')}")
-                        st.divider()
-                        st.subheader(f"Total: Rp {row.get('Total')}")
+                    st.markdown("**Rincian Biaya yang Diinput:**")
+                    
+                    # Daftar kategori yang akan dicek
+                    list_kategori = {
+                        "Bensin": "Bensin",
+                        "Toll": "Toll",
+                        "Parkir": "Parkir",
+                        "Makan Teknisi": "Makan Teknisi",
+                        "Uang Makan": "Uang Makan",
+                        "Hotel": "Hotel",
+                        "Bahan/Alat": "Alat" # Sesuaikan dengan nama kolom di Sheets Bapak
+                    }
+                    
+                    # Menampilkan hanya yang nilainya lebih dari 0
+                    ada_biaya = False
+                    for label, kolom in list_kategori.items():
+                        nilai = row.get(kolom, 0)
+                        try:
+                            # Pastikan nilai dikonversi ke angka untuk pengecekan
+                            if float(str(nilai).replace(',', '')) > 0:
+                                st.write(f"✅ **{label}:** Rp {nilai}")
+                                ada_biaya = True
+                        except:
+                            continue
+                    
+                    if not ada_biaya:
+                        st.write("*Tidak ada rincian biaya tambahan.*")
+                        
+                    st.divider()
+                    st.subheader(f"Total: Rp {row.get('Total')}")
                     
                     if st.button(f"🗑️ Hapus Baris Ini", key=f"del_{row['index']}"):
                         delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
