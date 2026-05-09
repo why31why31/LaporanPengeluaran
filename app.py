@@ -37,7 +37,6 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            # Tambahkan Header sampai kolom M
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total", "Link GDrive"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
@@ -48,12 +47,10 @@ def append_to_sheets(nama_user, data):
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
-        # Ambil sampai kolom M (kolom ke-13)
         result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:M").execute()
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
         
-        # Pastikan jumlah kolom konsisten
         max_cols = 13
         processed_values = []
         header = values[0]
@@ -67,15 +64,16 @@ def get_user_data(nama_user):
         df['Tanggal'] = pd.to_datetime(df['Tanggal'])
         df = df.sort_values(by='Tanggal', ascending=False)
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame()
 
-def update_gdrive_link(nama_user, row_index, link):
+def update_gdrive_link(nama_user, row_index, link, label):
     try:
         service = get_gcp_service('sheets', 'v4')
-        # Menulis ke kolom M (kolom ke-13)
+        # Format Hyperlink: =HYPERLINK("url", "label")
+        hyperlink_formula = f'=HYPERLINK("{link}", "{label}")'
         range_name = f"'{nama_user}'!M{row_index}"
-        body = {'values': [[link]]}
+        body = {'values': [[hyperlink_formula]]}
         service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=range_name, valueInputOption="USER_ENTERED", body=body).execute()
         return True
     except Exception as e:
@@ -163,10 +161,8 @@ if check_password():
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # 1. Simpan ke Sheets (Kolom M dikosongkan dulu)
                     append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total, ""])
                     
-                    # 2. Buat PDF
                     pdf = FPDF()
                     pdf.add_page()
                     if kop_exist:
@@ -220,23 +216,37 @@ if check_password():
         if not df.empty:
             df['original_row_index'] = df.index + 2
             for i, row in df.iterrows():
-                with st.expander(f"📅 {row['Tanggal'].strftime('%Y-%m-%d')} - {row.get('Customer')}"):
-                    st.markdown(f"**Customer:** {row.get('Customer')}")
+                # Persiapkan Label untuk Hyperlink (Customer_Tanggal)
+                tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
+                cust_name = row.get('Customer', 'Unknown')
+                label_hyperlink = f"{cust_name}_{tgl_str}"
+
+                with st.expander(f"📅 {tgl_str} - {cust_name}"):
+                    st.markdown(f"**Customer:** {cust_name}")
                     
-                    # Cek Link di Kolom M (Index 12)
-                    current_link = row.iloc[12] if len(row) >= 13 else ""
-                    if current_link and str(current_link).startswith("http"):
-                        st.success(f"🔗 [Buka PDF Service Report di GDrive]({current_link})")
+                    # Logika deteksi link di kolom M
+                    raw_link = row.iloc[12] if len(row) >= 13 else ""
+                    # Karena isinya sekarang rumus, kita ambil URL-nya saja untuk tampilan di Streamlit
+                    display_link = ""
+                    if 'HYPERLINK' in str(raw_link):
+                        import re
+                        urls = re.findall(r'"(http[^"]+)"', str(raw_link))
+                        if urls: display_link = urls[0]
+                    elif str(raw_link).startswith("http"):
+                        display_link = raw_link
+
+                    if display_link:
+                        st.success(f"🔗 [Buka PDF: {label_hyperlink}]({display_link})")
                     
                     st.divider()
-                    st.write("🔗 **Update Link GDrive (Kolom M):**")
+                    st.write("🔗 **Input Link GDrive (Akan otomatis rapi di Sheets):**")
                     c_link, c_save = st.columns([3, 1])
                     with c_link:
-                        link_val = st.text_input("Paste Link PDF:", value=current_link if str(current_link).startswith("http") else "", key=f"link_txt_{i}", label_visibility="collapsed")
+                        link_val = st.text_input("Paste Link PDF:", value=display_link, key=f"link_txt_{i}", label_visibility="collapsed")
                     with c_save:
                         if st.button("💾 Simpan", key=f"btn_link_{i}"):
-                            if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val):
-                                st.toast("Link tersimpan!", icon="✅")
+                            if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val, label_hyperlink):
+                                st.toast("Link berhasil dirapikan!", icon="✅")
                                 st.rerun()
 
                     st.divider()
