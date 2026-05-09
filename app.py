@@ -50,7 +50,6 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            # Update Header: Tambahkan Kolom Customer
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Alat", "Total"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
@@ -64,7 +63,12 @@ def get_user_data(nama_user):
         result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:L").execute()
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
-        return pd.DataFrame(values[1:], columns=values[0])
+        
+        df = pd.DataFrame(values[1:], columns=values[0])
+        # --- LOGIKA AUTO-SORT TANGGAL ---
+        df['Tanggal'] = pd.to_datetime(df['Tanggal'])
+        df = df.sort_values(by='Tanggal', ascending=False) # Tanggal terbaru tetap di atas
+        return df
     except: return pd.DataFrame()
 
 def delete_user_row(nama_user, row_index):
@@ -121,9 +125,7 @@ if check_password():
             nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
             tgl_input = c_id2.date_input("Tanggal Tugas", datetime.now())
             
-            # --- TAMBAHAN INPUT CUSTOMER ---
             customer = st.text_input("Nama Customer / Perusahaan:")
-            
             mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Siebler", "MG2", "Frewitt", "Truking", "FrymaKoruma", "Stephan", "Lainnya"])
             detail = st.text_area("Detail Pekerjaan:")
             keperluan = f"[{mesin}] {detail}"
@@ -150,10 +152,9 @@ if check_password():
                     total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + bahan_alat
                     tgl_iso = tgl_input.strftime('%Y-%m-%d')
                     
-                    # Simpan ke Sheets (Menambah kolom customer)
                     append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, bahan_alat, total])
                     
-                    # Buat PDF
+                    # --- PDF DENGAN FILTER BIAYA 0 ---
                     pdf = FPDF(); pdf.add_page()
                     if kop_exist: pdf.image(KOP_FILE_PATH, x=(210-lebar_kop)/2, y=10, w=lebar_kop); pdf.ln(spasi_bawah)
                     pdf.set_font("Arial", "B", 11)
@@ -162,10 +163,17 @@ if check_password():
                     pdf.set_font("Arial", "", 11)
                     pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                     
-                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan": uang_makan, "Hotel": hotel, "Alat": bahan_alat}
+                    pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
+                    pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
+                    pdf.set_font("Arial", "", 11)
+                    
+                    dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Alat/Bahan": bahan_alat}
+                    
                     for k, v in dict_b.items():
-                        if v > 0: pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
-                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0); pdf.cell(60, 10, f" Rp {total:,}", 1, 1)
+                        if v > 0: # HANYA TAMPIL JIKA DIISI
+                            pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
+                    
+                    pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
                     temp_n = []; nota_pdfs = []
                     if bukti_files:
@@ -195,28 +203,26 @@ if check_password():
         st.header(f"📊 Riwayat: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         if not df.empty:
-            df_display = df.iloc[::-1].reset_index()
-            for i, row in df_display.iterrows():
-                with st.expander(f"📅 {row.get('Tanggal')} - {row.get('Customer')} ({row.get('Keperluan')[:20]}...)"):
+            # Dataframe df sudah di-sort berdasarkan tanggal di fungsi get_user_data
+            for i, row in df.iterrows():
+                with st.expander(f"📅 {row['Tanggal'].strftime('%Y-%m-%d')} - {row.get('Customer')} ({row.get('Keperluan')[:20]}...)"):
                     st.markdown(f"**Customer:** {row.get('Customer')}")
-                    st.markdown("**Rincian Biaya yang Diinput:**")
+                    st.markdown("**Rincian Biaya (Hanya yang diisi):**")
                     
                     list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Alat": "Alat"}
                     
-                    ada_biaya = False
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
                         try:
-                            if float(str(nilai).replace(',', '')) > 0:
-                                st.write(f"- {label}: Rp {nilai}")
-                                ada_biaya = True
+                            val = float(str(nilai).replace(',', ''))
+                            if val > 0:
+                                st.write(f"✅ {label}: Rp {val:,.0f}")
                         except: continue
                     
                     st.divider()
-                    st.subheader(f"Total: Rp {row.get('Total')}")
+                    st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
                     
-                    if st.button(f"🗑️ Hapus Baris Ini", key=f"del_{row['index']}"):
-                        delete_user_row(st.session_state.user_nama, int(row['index']) + 1)
-                        st.success("Baris berhasil dihapus!"); st.rerun()
+                    # Indeks untuk hapus tetap menggunakan index asli dari Sheets (perlu penyesuaian logika jika urutan berubah)
+                    st.info("Catatan: Gunakan menu Sheets untuk hapus data jika urutan tanggal sangat acak.")
         else:
             st.info("Belum ada data riwayat.")
