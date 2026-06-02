@@ -48,29 +48,21 @@ def append_to_sheets(nama_user, data):
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
-        # Ambil seluruh baris data dari kolom A sampai N
         result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N").execute()
         values = result.get('values', [])
         
         if not values or len(values) < 2: 
             return pd.DataFrame()
         
-        # 14 Kolom wajib
         max_cols = 14
         processed_values = []
-        
-        # Ambil header standar agar tidak bentrok dengan data lama di Sheets
         header = ["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]
         
-        # Proses setiap baris di Sheets secara aman
         for row in values[1:]:
-            # Jika ada baris kosong, lewati
             if not row or row[0] == "":
                 continue
-            # Jika jumlah kolom kurang dari 14, tambahkan string kosong sampai pas 14 kolom
             while len(row) < max_cols:
                 row.append("")
-            # Batasi hanya mengambil maksimal 14 kolom pertama
             processed_values.append(row[:max_cols])
             
         if not processed_values:
@@ -78,12 +70,10 @@ def get_user_data(nama_user):
             
         df = pd.DataFrame(processed_values, columns=header)
         df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
-        # Buang baris jika tanggal gagal terbaca
         df = df.dropna(subset=['Tanggal'])
         df = df.sort_values(by='Tanggal', ascending=False)
         return df
     except Exception as e:
-        # Menampilkan log error jika ada kendala pembacaan data structure
         st.error(f"Gagal memproses data riwayat: {e}")
         return pd.DataFrame()
 
@@ -208,68 +198,4 @@ if check_password():
 
         # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
-            opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
-            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
-            spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
-            lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
-            kop_exist = os.path.exists(KOP_FILE_PATH)
-
-            with st.form("main_form", clear_on_submit=False):
-                if kop_exist: 
-                    st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
-                else:
-                    st.warning("⚠️ File 'kop_tetap.jpg' tidak ditemukan.")
-                    
-                c_id1, c_id2 = st.columns(2)
-                nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
-                tgl_input = c_id2.date_input("Tanggal Tugas", datetime.now())
-                customer = st.text_input("Nama Customer / Perusahaan:")
-                mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Siebler", "MG2", "Frewitt", "Truking", "FrymaKoruma", "Stephan", "Lainnya"])
-                detail = st.text_area("Detail Pekerjaan:")
-                keperluan = f"[{mesin}] {detail}"
-                
-                bensin = toll = parkir = makan_teknisi = uang_makan = hotel = lain_lain = 0
-                col_a, col_b = st.columns(2)
-                if "Bensin" in opsi_biaya: bensin = col_a.number_input("Bensin", min_value=0)
-                if "Toll" in opsi_biaya: toll = col_b.number_input("Toll", min_value=0)
-                col_c, col_d = st.columns(2)
-                if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
-                if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
-                
-                if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
-                if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
-                if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0)
-                
-                is_lembur = st.checkbox("⚠️ Centang jika kerja Lembur")
-                
-                bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
-                report_file = st.file_uploader("📄 Service Report", type=['pdf'])
-                btn_sub = st.form_submit_button("💾 SIMPAN & DOWNLOAD PDF")
-
-            if btn_sub:
-                with st.spinner("Sedang memproses..."):
-                    try:
-                        total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + lain_lain
-                        tgl_iso = tgl_input.strftime('%Y-%m-%d')
-                        tgl_cetak = tgl_input.strftime('%d/%m/%Y')
-                        
-                        append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, "", ""])
-                        
-                        pdf = FPDF()
-                        pdf.add_page()
-                        if kop_exist:
-                            pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
-                            pdf.set_y(10 + spasi_bawah) 
-                        else:
-                            pdf.set_y(20)
-                        
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 7, f"Customer: {customer}", ln=True)
-                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
-                        pdf.ln(2); pdf.set_font("Arial", "", 11)
-                        pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
-                        
-                        pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
-                        pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
-                        pdf.set_font("Arial", "", 11)
-                        dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir
+            opsi_biaya = st.sidebar.multiselect("Pilih
