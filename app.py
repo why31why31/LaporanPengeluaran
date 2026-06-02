@@ -48,8 +48,14 @@ def append_to_sheets(nama_user, data):
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
+        
+        # 1. Panggil data Teks Biasa
         result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N").execute()
         values = result.get('values', [])
+        
+        # 2. Panggil data RUMUS secara serentak untuk blok yang sama agar urutan baris presisi
+        result_formula = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N", valueRenderOption="FORMULA").execute()
+        formulas = result_formula.get('values', [])
         
         if not values or len(values) < 2: 
             return pd.DataFrame()
@@ -58,11 +64,20 @@ def get_user_data(nama_user):
         processed_values = []
         header = ["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]
         
-        for row in values[1:]:
+        for i, row in enumerate(values[1:]):
+            row_idx = i + 1
             if not row or row[0] == "":
                 continue
+            
             while len(row) < max_cols:
                 row.append("")
+                
+            # Tarik paksa rumus dari kolom M (index ke-12) jika baris tersebut memilikinya
+            if row_idx < len(formulas) and len(formulas[row_idx]) > 12:
+                raw_formula = formulas[row_idx][12]
+                if raw_formula:
+                    row[12] = raw_formula
+                    
             processed_values.append(row[:max_cols])
             
         if not processed_values:
@@ -148,7 +163,7 @@ if check_password():
             st.write("Pantau rincian biaya, hitung pengeluaran mingguan, dan konfirmasi pembayaran bon tim.")
             
             list_tim = [nama for nama in USERS_CREDENTIALS.keys() if nama != "Admin"]
-            target_user = st.selectbox("🎯 Pilih Nama Teknini/User:", list_tim)
+            target_user = st.selectbox("🎯 Pilih Nama Teknisi/User:", list_tim)
             
             st.divider()
             
@@ -174,15 +189,18 @@ if check_password():
                 df_sheet = df_admin.copy()
                 df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
                 
+                # --- SISTEM EKSTRAKSI LINK SUPER KUAT ---
                 cleaned_links = []
                 for val in df_sheet['Link GDrive']:
-                    if 'HYPERLINK' in str(val):
-                        urls = re.findall(r'"(http[^"]+)"', str(val))
-                        cleaned_links.append(urls[0] if urls else "")
+                    val_str = str(val)
+                    # Deteksi segala bentuk link yang berawalan http atau https
+                    urls = re.findall(r'(https?://[^\s",]+)', val_str)
+                    if urls:
+                        cleaned_links.append(urls[0])
                     else:
-                        cleaned_links.append(str(val) if str(val).startswith("http") else "")
+                        cleaned_links.append(None)
+                        
                 df_sheet['Link Dokumen'] = cleaned_links
-                
                 df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
                 
                 kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas"]
@@ -267,7 +285,6 @@ if check_password():
                 report_file = st.file_uploader("📄 Service Report", type=['pdf'])
                 btn_sub = st.form_submit_button("💾 SIMPAN & GENERATE LAPORAN")
 
-            # Tempat penampung tombol download di luar form agar stabil muncul
             if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
                 st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan!")
                 st.download_button(
@@ -276,7 +293,6 @@ if check_password():
                     file_name=st.session_state.pdf_name,
                     mime="application/pdf"
                 )
-                # Bersihkan session state setelah didownload agar tidak menumpuk
                 if st.button("🧹 Bersihkan Form / Input Baru"):
                     del st.session_state.pdf_ready
                     del st.session_state.pdf_data
@@ -340,7 +356,6 @@ if check_password():
                         
                         f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                         
-                        # Simpan hasil render PDF ke session state agar tidak hilang saat halaman termuat ulang
                         st.session_state.pdf_data = f_buf.getvalue()
                         st.session_state.pdf_name = f"Laporan_{customer}_{tgl_iso}.pdf"
                         st.session_state.last_customer = customer
