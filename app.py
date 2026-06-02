@@ -53,7 +53,7 @@ def get_user_data(nama_user):
         result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N").execute()
         values = result.get('values', [])
         
-        # 2. Panggil data RUMUS secara serentak untuk blok yang sama agar urutan baris presisi
+        # 2. Panggil data RUMUS secara serentak
         result_formula = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N", valueRenderOption="FORMULA").execute()
         formulas = result_formula.get('values', [])
         
@@ -72,7 +72,6 @@ def get_user_data(nama_user):
             while len(row) < max_cols:
                 row.append("")
                 
-            # Tarik paksa rumus dari kolom M (index ke-12) jika baris tersebut memilikinya
             if row_idx < len(formulas) and len(formulas[row_idx]) > 12:
                 raw_formula = formulas[row_idx][12]
                 if raw_formula:
@@ -160,7 +159,7 @@ if check_password():
         
         with tabs[0]:
             st.header("👨‍💼 Panel Monitoring Admin")
-            st.write("Pantau rincian biaya, hitung pengeluaran mingguan, dan konfirmasi pembayaran bon tim.")
+            st.write("Pantau rincian biaya, konfirmasi pembayaran bon tim, dan hitung pengeluaran mingguan.")
             
             list_tim = [nama for nama in USERS_CREDENTIALS.keys() if nama != "Admin"]
             target_user = st.selectbox("🎯 Pilih Nama Teknisi/User:", list_tim)
@@ -170,17 +169,6 @@ if check_password():
             df_admin = get_user_data(target_user)
             
             if not df_admin.empty:
-                df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
-                
-                hari_ini = datetime.now()
-                tujuh_hari_lalu = hari_ini - timedelta(days=7)
-                
-                df_mingguan = df_admin[df_admin['Tanggal'] >= tujuh_hari_lalu]
-                total_mingguan = df_mingguan['Total_Angka'].sum()
-                
-                st.metric(label=f"📊 Total Pengeluaran 7 Hari Terakhir ({target_user})", value=f"Rp {total_mingguan:,.0f}")
-                
-                st.divider()
                 st.subheader(f"📋 Spreadsheet Laporan Pengeluaran: {target_user}")
                 st.caption("💡 Petunjuk: Kolom 'Link Dokumen' berisi tautan langsung ke Google Drive. Anda bisa mencentang kolom 'Status Lunas' lalu klik tombol di bawah untuk menyimpan.")
                 
@@ -189,11 +177,9 @@ if check_password():
                 df_sheet = df_admin.copy()
                 df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
                 
-                # --- SISTEM EKSTRAKSI LINK SUPER KUAT ---
                 cleaned_links = []
                 for val in df_sheet['Link GDrive']:
                     val_str = str(val)
-                    # Deteksi segala bentuk link yang berawalan http atau https
                     urls = re.findall(r'(https?://[^\s",]+)', val_str)
                     if urls:
                         cleaned_links.append(urls[0])
@@ -239,6 +225,20 @@ if check_password():
                         st.rerun()
                     else:
                         st.info("Tidak ada perubahan status yang diubah.")
+                        
+                st.divider()
+                
+                # --- TOTAL PENGELUARAN MINGGUAN DIPINDAH KE BAWAH SINI ---
+                df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
+                
+                hari_ini = datetime.now()
+                tujuh_hari_lalu = hari_ini - timedelta(days=7)
+                
+                df_mingguan = df_admin[df_admin['Tanggal'] >= tujuh_hari_lalu]
+                total_mingguan = df_mingguan['Total_Angka'].sum()
+                
+                st.metric(label=f"📊 Total Pengeluaran 7 Hari Terakhir ({target_user})", value=f"Rp {total_mingguan:,.0f}")
+                
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
                 
