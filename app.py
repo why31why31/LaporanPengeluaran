@@ -119,7 +119,6 @@ def check_password():
 if check_password():
     st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
     
-    # Tombol Log Out ditaruh di paling atas Sidebar agar selalu bisa diakses siapa saja
     st.sidebar.header(f"Halo, {st.session_state.user_nama}")
     if st.sidebar.button("Log Out"):
         st.session_state.password_correct = False
@@ -127,9 +126,7 @@ if check_password():
 
     is_admin = st.session_state.user_nama == "Admin"
     
-    # --- KONDISI PEMBAGIAN HALALMAN TABS ---
     if is_admin:
-        # Jika ADMIN login, HANYA buat 1 tab khusus admin
         tabs = st.tabs(["👨‍💼 Tab Admin (Semua Tim)"])
         
         with tabs[0]:
@@ -151,13 +148,12 @@ if check_password():
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
                 
     else:
-        # Jika BUKAN ADMIN (Teknisi biasa), buat 2 tab input & riwayat mandiri
         tabs = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
         # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
-            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 90, 70)
+            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
             spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
             lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
             kop_exist = os.path.exists(KOP_FILE_PATH)
@@ -188,6 +184,9 @@ if check_password():
                 if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
                 if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0)
                 
+                # --- FITUR BARU: CEK LIST LEMBUR ---
+                is_lembur = st.checkbox("⚠️ Centang jika kerja Lembur")
+                
                 bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
                 report_file = st.file_uploader("📄 Service Report", type=['pdf'])
                 btn_sub = st.form_submit_button("💾 SIMPAN & DOWNLOAD PDF")
@@ -197,6 +196,7 @@ if check_password():
                     try:
                         total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + lain_lain
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
+                        tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
                         append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, ""])
                         
@@ -210,7 +210,7 @@ if check_password():
                         
                         pdf.set_font("Arial", "B", 11)
                         pdf.cell(0, 7, f"Customer: {customer}", ln=True)
-                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
+                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
                         pdf.ln(2); pdf.set_font("Arial", "", 11)
                         pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                         
@@ -222,6 +222,15 @@ if check_password():
                             if v > 0:
                                 pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
                         pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
+
+                        # --- LOGIKA CETAK KETERANGAN LEMBUR ---
+                        if is_lembur:
+                            pdf.ln(4)
+                            # Set warna blok kuning (R=255, G=255, B=0)
+                            pdf.set_fill_color(255, 255, 0)
+                            pdf.set_font("Arial", "B", 11)
+                            # Cetak kotak kuning dengan teks keterangan lembur
+                            pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
 
                         temp_n = []; nota_pdfs = []
                         if bukti_files:
