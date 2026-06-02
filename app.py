@@ -155,6 +155,7 @@ if check_password():
             df_admin = get_user_data(target_user)
             
             if not df_admin.empty:
+                # Perhitungan total angka bersih
                 df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
                 
                 hari_ini = datetime.now()
@@ -166,52 +167,53 @@ if check_password():
                 st.metric(label=f"📊 Total Pengeluaran 7 Hari Terakhir ({target_user})", value=f"Rp {total_mingguan:,.0f}")
                 
                 st.divider()
-                st.subheader(f"📋 Semua Laporan Pengeluaran: {target_user}")
+                st.subheader(f"📋 Spreadsheet Laporan Pengeluaran: {target_user}")
+                st.caption("💡 Petunjuk: Anda bisa mencentang langsung kolom 'Status Lunas' pada tabel di bawah ini, lalu klik tombol 'Simpan Pembayaran' untuk memperbarui database.")
                 
+                # Menyiapkan baris index asli Sheets
                 df_admin['original_row_index'] = df_admin.index + 2
                 
-                # UPDATE: Menampilkan semua secara langsung (tanpa expander lipat)
-                for i, row in df_admin.iterrows():
-                    tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
-                    cust_name = row.get('Customer', 'Unknown')
-                    current_status = row.iloc[13] if len(row) >= 14 else ""
-                    
-                    status_lunas = (current_status == "Sudah Dibayar Admin")
-                    
-                    # Tampilan kotak kontainer informasi terbuka
-                    st.markdown(f"### 📅 {tgl_str} - {cust_name}")
-                    
-                    # Status Box untuk Admin
-                    if status_lunas:
-                        st.success("💰 **Status: Sudah Dibayarkan Admin**")
-                    else:
-                        st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
-                        
-                    st.markdown(f"**Keperluan / Detail Pekerjaan:** {row.get('Keperluan')}")
-                    
-                    # Tampilkan rincian kategori biaya yang > 0 secara detail ke Admin
-                    list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Lain-lain": "Lain-lain"}
-                    for label, kolom in list_kategori.items():
-                        nilai_biaya = row.get(kolom, 0)
-                        try:
-                            val = float(str(nilai_biaya).replace(',', ''))
-                            if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
-                        except: continue
-                        
-                    st.write(f"**Total Pengeluaran Laporan Ini:** Rp {float(row['Total_Angka']):,.0f}")
-                    
-                    # Checkbox Konfirmasi Pembayaran Bon
-                    col_chk, col_space = st.columns([2, 2])
-                    with col_chk:
-                        confirm_pay = st.checkbox("💸 Tandai bon ini sebagai 'Sudah Dibayar'", value=status_lunas, key=f"pay_chk_{i}")
-                        
-                        if confirm_pay != status_lunas:
-                            status_baru = "Sudah Dibayar Admin" if confirm_pay else ""
-                            if update_payment_status(target_user, int(row['original_row_index']), status_baru):
-                                st.toast("Status pembayaran diperbarui!", icon="💰")
-                                st.rerun()
+                # Membuat format dataframe khusus spreadsheet agar bisa diedit
+                df_sheet = df_admin.copy()
+                df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
+                
+                # Mengubah teks status menjadi Boolean (True/False) agar berubah jadi Checkbox di tabel
+                df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
+                
+                # Memilih susunan kolom yang ingin ditampilkan ke Admin di tabel spreadsheet
+                kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Status Lunas"]
+                df_tampil = df_sheet[kolom_tampil]
+                
+                # Menampilkan data dalam bentuk Tabel Spreadsheet yang bisa dicentang langsung
+                edited_df = st.data_editor(
+                    df_tampil,
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total"] # Kunci kolom lain agar tidak bisa diedit sembarangan
+                )
+                
+                # Tombol Simpan Perubahan data dari spreadsheet ke Google Sheets
+                if st.button("💾 Simpan Perubahan Pembayaran"):
+                    perubahan_terjadi = False
+                    with st.spinner("Menyimpan status ke Google Sheets..."):
+                        for idx, row in edited_df.iterrows():
+                            # Cek apakah nilai checkbox berubah dibanding data awal
+                            nilai_baru_checkbox = row['Status Lunas']
+                            nilai_lama_checkbox = df_sheet.loc[idx, 'Status Lunas']
+                            
+                            if nilai_baru_checkbox != nilai_lama_checkbox:
+                                original_row = int(df_admin.loc[idx, 'original_row_index'])
+                                status_teks = "Sudah Dibayar Admin" if nilai_baru_checkbox else ""
                                 
-                    st.divider() # Batas antar laporan pengeluaran
+                                # Tembak data status ke Kolom N Google Sheets
+                                update_payment_status(target_user, original_row, status_teks)
+                                perubahan_terjadi = True
+                                
+                    if perubahan_terjadi:
+                        st.success("✅ Semua status pembayaran berhasil diperbarui!")
+                        st.rerun()
+                    else:
+                        st.info("Tidak ada perubahan status yang diubah.")
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
                 
@@ -277,7 +279,7 @@ if check_password():
                         
                         pdf.set_font("Arial", "B", 11)
                         pdf.cell(0, 7, f"Customer: {customer}", ln=True)
-                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
+                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
                         pdf.ln(2); pdf.set_font("Arial", "", 11)
                         pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                         
@@ -374,7 +376,7 @@ if check_password():
                                 if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
                             except: continue
                         st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                        if st.button(f"🗑️ Haporan Ini", key=f"del_lap_{i}"):
+                        if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
                             delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
                             st.success("Data berhasil dihapus!"); st.rerun()
             else:
