@@ -29,7 +29,6 @@ def get_gcp_service(service_name, version):
     creds = service_account.Credentials.from_service_account_info(info)
     return build(service_name, version, credentials=creds)
 
-# DITAMBAHKAN PARAMETER is_lembur UNTUK MEWARNAI BARIS
 def append_to_sheets(nama_user, data, is_lembur=False):
     try:
         service = get_gcp_service('sheets', 'v4')
@@ -42,7 +41,7 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
-        # Simpan data ke Sheets
+        # Simpan data teks ke Sheets
         response = service.spreadsheets().values().append(
             spreadsheetId=SPREADSHEET_ID, 
             range=f"'{nama_user}'!A1", 
@@ -51,42 +50,41 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             body={'values': [data]}
         ).execute()
         
-        # JIKA CEKLIST LEMBUR DICENTANG, BLOK BARIS TERSEBUT JADI KUNING
-        if is_lembur:
-            updated_range = response.get('updates', {}).get('updatedRange', '')
-            # Mencari angka baris dari rentang yang baru diupdate (misal: 'Wahyu'!A15:N15)
-            match = re.search(r'!A(\d+)', updated_range)
-            if match:
-                row_index = int(match.group(1))
-                
-                # Ambil Sheet ID
-                spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-                sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
-                
-                # Kode warna Kuning Cerah
+        # PERBAIKAN: Selalu atur ulang warna baris baru agar tidak tertular baris atasnya
+        updated_range = response.get('updates', {}).get('updatedRange', '')
+        match = re.search(r'!A(\d+)', updated_range)
+        if match:
+            row_index = int(match.group(1))
+            
+            spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+            sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
+            
+            # Jika lembur kuning, jika tidak lembur paksa jadi putih bersih
+            if is_lembur:
                 bg_color = {"red": 1.0, "green": 1.0, "blue": 0.0} 
+            else:
+                bg_color = {"red": 1.0, "green": 1.0, "blue": 1.0} 
                 
-                requests = [
-                    {
-                        "repeatCell": {
-                            "range": {
-                                "sheetId": sheet_id,
-                                "startRowIndex": row_index - 1,
-                                "endRowIndex": row_index,
-                                "startColumnIndex": 0,
-                                "endColumnIndex": 14 # Sampai kolom N
-                            },
-                            "cell": {
-                                "userEnteredFormat": {
-                                    "backgroundColor": bg_color
-                                }
-                            },
-                            "fields": "userEnteredFormat.backgroundColor"
-                        }
+            requests = [
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": row_index - 1,
+                            "endRowIndex": row_index,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 14 
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": bg_color
+                            }
+                        },
+                        "fields": "userEnteredFormat.backgroundColor"
                     }
-                ]
-                # Eksekusi blok warna
-                service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': requests}).execute()
+                }
+            ]
+            service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': requests}).execute()
                 
     except Exception as e:
         st.error(f"Gagal simpan ke Sheets: {e}")
@@ -146,7 +144,6 @@ def update_gdrive_link(nama_user, row_index, link, label):
         st.error(f"Gagal update link: {e}")
         return False
 
-# FUNGSI DIKEMBALIKAN KE AWAL (Hanya merubah tulisan status, tidak blok warna)
 def update_payment_status(nama_user, row_index, status_text):
     try:
         service = get_gcp_service('sheets', 'v4')
@@ -349,7 +346,7 @@ if check_password():
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        # KIRIM PARAMETER is_lembur KE FUNGSI PENYIMPANAN SHEETS
+                        # Parameter is_lembur dikirim untuk mengatur warna
                         append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, "", ""], is_lembur)
                         
                         pdf = FPDF()
