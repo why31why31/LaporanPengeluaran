@@ -82,7 +82,7 @@ def update_gdrive_link(nama_user, row_index, link, label):
         st.error(f"Gagal update link: {e}")
         return False
 
-# Fungsi baru untuk memperbarui status pembayaran di Kolom N
+# Fungsi memperbarui status pembayaran di Kolom N
 def update_payment_status(nama_user, row_index, status_text):
     try:
         service = get_gcp_service('sheets', 'v4')
@@ -148,25 +148,20 @@ if check_password():
             
             df_admin = get_user_data(target_user)
             
-            # --- FITUR 1: HITUNG TOTAL PENGELUARAN MINGGUAN (7 HARI TERAKHIR) ---
             if not df_admin.empty:
-                # Pastikan kolom total berupa angka bersih
                 df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
                 
                 hari_ini = datetime.now()
                 tujuh_hari_lalu = hari_ini - timedelta(days=7)
                 
-                # Filter data yang masuk dalam jangka waktu 7 hari terakhir
                 df_mingguan = df_admin[df_admin['Tanggal'] >= tujuh_hari_lalu]
                 total_mingguan = df_mingguan['Total_Angka'].sum()
                 
-                # Tampilkan info di box besar yang mencolok
                 st.metric(label=f"📊 Total Pengeluaran 7 Hari Terakhir ({target_user})", value=f"Rp {total_mingguan:,.0f}")
                 
                 st.divider()
                 st.subheader(f"📋 Detail Laporan & Konfirmasi Pembayaran: {target_user}")
                 
-                # --- FITUR 2: DAFTAR DENGAN CHECKBOX APPROVAL PEMBAYARAN ---
                 df_admin['original_row_index'] = df_admin.index + 2
                 
                 for i, row in df_admin.iterrows():
@@ -176,17 +171,14 @@ if check_password():
                     
                     status_lunas = (current_status == "Sudah Dibayar Admin")
                     
-                    # Membuat daftar laporan lipat agar tidak terlalu panjang di layar Admin
                     with st.expander(f"📅 {tgl_str} - {cust_name} | Total: Rp {float(row['Total_Angka']):,.0f} | 📌 Status: {current_status if current_status else 'Pending'}"):
                         st.markdown(f"**Keperluan / Detail Pekerjaan:** {row.get('Keperluan')}")
                         st.write(f"Total Pengeluaran: **Rp {float(row['Total_Angka']):,.0f}**")
                         
-                        # Checkbox Konfirmasi Pembayaran Bon
                         col_chk, col_space = st.columns([2, 2])
                         with col_chk:
                             confirm_pay = st.checkbox("💸 Tandai bon ini sebagai 'Sudah Dibayar'", value=status_lunas, key=f"pay_chk_{i}")
                             
-                            # Logika trigger jika status checkbox berubah dari data asli di Sheets
                             if confirm_pay != status_lunas:
                                 status_baru = "Sudah Dibayar Admin" if confirm_pay else ""
                                 if update_payment_status(target_user, int(row['original_row_index']), status_baru):
@@ -201,7 +193,7 @@ if check_password():
         # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
-            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 80, 70)
+            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
             spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
             lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
             kop_exist = os.path.exists(KOP_FILE_PATH)
@@ -245,7 +237,7 @@ if check_password():
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        # Saat input awal, kolom M (Link GDrive) dan kolom N (Status Bayar) dikosongkan ("")
+                        # PERBAIKAN: Ditambahkan 2 elemen kosong di paling akhir untuk kolom M dan N agar baris data lengkap 14 Kolom!
                         append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, "", ""])
                         
                         pdf = FPDF()
@@ -298,6 +290,7 @@ if check_password():
                                 
                         st.success(f"✅ Data {customer} Berhasil Disimpan!")
                         st.download_button("📥 KLIK DI SINI UNTUK DOWNLOAD PDF", f_buf.getvalue(), f"Laporan_{customer}_{tgl_iso}.pdf")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Gagal: {e}")
 
@@ -313,7 +306,6 @@ if check_password():
                     label_hyperlink = f"{cust_name}_{tgl_str}"
 
                     with st.expander(f"📅 {tgl_str} - {cust_name}"):
-                        # --- FITUR 3: KETERANGAN INFORMASI STATUS BAYAR UNTUK TEKNISI ---
                         status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
                         if status_bayar_user == "Sudah Dibayar Admin":
                             st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
