@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from fpdf import FPDF
 from pypdf import PdfWriter
 from google.oauth2 import service_account
@@ -38,7 +38,8 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive"]]
+            # Header baru mencakup Link GDrive (M) dan Status Bayar (N)
+            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
         service.spreadsheets().values().append(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body={'values': [data]}).execute()
@@ -48,11 +49,12 @@ def append_to_sheets(nama_user, data):
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:M").execute()
+        # Ambil sampai kolom N (kolom ke-14)
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N").execute()
         values = result.get('values', [])
         if not values or len(values) < 2: return pd.DataFrame()
         
-        max_cols = 13
+        max_cols = 14
         processed_values = []
         header = values[0]
         
@@ -74,16 +76,22 @@ def update_gdrive_link(nama_user, row_index, link, label):
         formula = f'=HYPERLINK("{link}"; "{label}")'
         target_range = f"'{nama_user}'!M{row_index}"
         body = {'values': [[formula]]}
-        
-        service.spreadsheets().values().update(
-            spreadsheetId=SPREADSHEET_ID, 
-            range=target_range, 
-            valueInputOption="USER_ENTERED", 
-            body=body
-        ).execute()
+        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=target_range, valueInputOption="USER_ENTERED", body=body).execute()
         return True
     except Exception as e:
         st.error(f"Gagal update link: {e}")
+        return False
+
+# Fungsi baru untuk memperbarui status pembayaran di Kolom N
+def update_payment_status(nama_user, row_index, status_text):
+    try:
+        service = get_gcp_service('sheets', 'v4')
+        target_range = f"'{nama_user}'!N{row_index}"
+        body = {'values': [[status_text]]}
+        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=target_range, valueInputOption="USER_ENTERED", body=body).execute()
+        return True
+    except Exception as e:
+        st.error(f"Gagal update status bayar: {e}")
         return False
 
 def delete_user_row(nama_user, row_index):
@@ -131,19 +139,59 @@ if check_password():
         
         with tabs[0]:
             st.header("👨‍💼 Panel Monitoring Admin")
-            st.write("Pilih nama anggota tim di bawah ini untuk melihat lembar riwayat input mereka secara real-time.")
+            st.write("Pantau rincian biaya, hitung pengeluaran mingguan, dan konfirmasi pembayaran bon tim.")
             
             list_tim = [nama for nama in USERS_CREDENTIALS.keys() if nama != "Admin"]
             target_user = st.selectbox("🎯 Pilih Nama Teknisi/User:", list_tim)
             
             st.divider()
-            st.subheader(f"📋 Lembar Data Laporan: {target_user}")
             
             df_admin = get_user_data(target_user)
+            
+            # --- FITUR 1: HITUNG TOTAL PENGELUARAN MINGGUAN (7 HARI TERAKHIR) ---
             if not df_admin.empty:
-                df_display = df_admin.copy()
-                df_display['Tanggal'] = df_display['Tanggal'].dt.strftime('%Y-%m-%d')
-                st.dataframe(df_display, use_container_width=True, hide_index=True)
+                # Pastikan kolom total berupa angka bersih
+                df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
+                
+                hari_ini = datetime.now()
+                tujuh_hari_lalu = hari_ini - timedelta(days=7)
+                
+                # Filter data yang masuk dalam jangka waktu 7 hari terakhir
+                df_mingguan = df_admin[df_admin['Tanggal'] >= tujuh_hari_lalu]
+                total_mingguan = df_mingguan['Total_Angka'].sum()
+                
+                # Tampilkan info di box besar yang mencolok
+                st.metric(label=f"📊 Total Pengeluaran 7 Hari Terakhir ({target_user})", value=f"Rp {total_mingguan:,.0f}")
+                
+                st.divider()
+                st.subheader(f"📋 Detail Laporan & Konfirmasi Pembayaran: {target_user}")
+                
+                # --- FITUR 2: DAFTAR DENGAN CHECKBOX APPROVAL PEMBAYARAN ---
+                df_admin['original_row_index'] = df_admin.index + 2
+                
+                for i, row in df_admin.iterrows():
+                    tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
+                    cust_name = row.get('Customer', 'Unknown')
+                    current_status = row.iloc[13] if len(row) >= 14 else ""
+                    
+                    status_lunas = (current_status == "Sudah Dibayar Admin")
+                    
+                    # Membuat daftar laporan lipat agar tidak terlalu panjang di layar Admin
+                    with st.expander(f"📅 {tgl_str} - {cust_name} | Total: Rp {float(row['Total_Angka']):,.0f} | 📌 Status: {current_status if current_status else 'Pending'}"):
+                        st.markdown(f"**Keperluan / Detail Pekerjaan:** {row.get('Keperluan')}")
+                        st.write(f"Total Pengeluaran: **Rp {float(row['Total_Angka']):,.0f}**")
+                        
+                        # Checkbox Konfirmasi Pembayaran Bon
+                        col_chk, col_space = st.columns([2, 2])
+                        with col_chk:
+                            confirm_pay = st.checkbox("💸 Tandai bon ini sebagai 'Sudah Dibayar'", value=status_lunas, key=f"pay_chk_{i}")
+                            
+                            # Logika trigger jika status checkbox berubah dari data asli di Sheets
+                            if confirm_pay != status_lunas:
+                                status_baru = "Sudah Dibayar Admin" if confirm_pay else ""
+                                if update_payment_status(target_user, int(row['original_row_index']), status_baru):
+                                    st.toast("Status pembayaran berhasil diperbarui!", icon="💰")
+                                    st.rerun()
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
                 
@@ -184,7 +232,6 @@ if check_password():
                 if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
                 if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0)
                 
-                # --- FITUR BARU: CEK LIST LEMBUR ---
                 is_lembur = st.checkbox("⚠️ Centang jika kerja Lembur")
                 
                 bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
@@ -198,7 +245,8 @@ if check_password():
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, ""])
+                        # Saat input awal, kolom M (Link GDrive) dan kolom N (Status Bayar) dikosongkan ("")
+                        append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, "", ""])
                         
                         pdf = FPDF()
                         pdf.add_page()
@@ -223,13 +271,10 @@ if check_password():
                                 pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
                         pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
-                        # --- LOGIKA CETAK KETERANGAN LEMBUR ---
                         if is_lembur:
                             pdf.ln(4)
-                            # Set warna blok kuning (R=255, G=255, B=0)
                             pdf.set_fill_color(255, 255, 0)
                             pdf.set_font("Arial", "B", 11)
-                            # Cetak kotak kuning dengan teks keterangan lembur
                             pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
 
                         temp_n = []; nota_pdfs = []
@@ -268,6 +313,13 @@ if check_password():
                     label_hyperlink = f"{cust_name}_{tgl_str}"
 
                     with st.expander(f"📅 {tgl_str} - {cust_name}"):
+                        # --- FITUR 3: KETERANGAN INFORMASI STATUS BAYAR UNTUK TEKNISI ---
+                        status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
+                        if status_bayar_user == "Sudah Dibayar Admin":
+                            st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
+                        else:
+                            st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
+                            
                         st.markdown(f"**Customer:** {cust_name}")
                         
                         raw_link = row.iloc[12] if len(row) >= 13 else ""
