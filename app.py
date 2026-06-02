@@ -148,7 +148,7 @@ if check_password():
             st.write("Pantau rincian biaya, hitung pengeluaran mingguan, dan konfirmasi pembayaran bon tim.")
             
             list_tim = [nama for nama in USERS_CREDENTIALS.keys() if nama != "Admin"]
-            target_user = st.selectbox("🎯 Pilih Nama Teknisi/User:", list_tim)
+            target_user = st.selectbox("🎯 Pilih Nama Teknini/User:", list_tim)
             
             st.divider()
             
@@ -174,7 +174,6 @@ if check_password():
                 df_sheet = df_admin.copy()
                 df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
                 
-                # --- PROSES EKSTRAK LINK ASLI DARI RUMUS HYPERLINK UNTUK SPREADSHEET ADMIN ---
                 cleaned_links = []
                 for val in df_sheet['Link GDrive']:
                     if 'HYPERLINK' in str(val):
@@ -186,11 +185,9 @@ if check_password():
                 
                 df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
                 
-                # Menambahkan 'Link Dokumen' ke dalam urutan kolom yang ditampilkan
                 kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas"]
                 df_tampil = df_sheet[kolom_tampil]
                 
-                # Menampilkan Tabel Spreadsheet dengan kolom Link aktif yang bisa diklik
                 edited_df = st.data_editor(
                     df_tampil,
                     use_container_width=True,
@@ -200,7 +197,7 @@ if check_password():
                         "Link Dokumen": st.column_config.LinkColumn(
                             "📄 Link Dokumen", 
                             help="Klik untuk membuka PDF Service Report di GDrive",
-                            display_text="Buka Lampiran" # Mengubah teks link panjang jadi tulisan pendek rapi
+                            display_text="Buka Lampiran"
                         )
                     }
                 )
@@ -268,7 +265,24 @@ if check_password():
                 
                 bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
                 report_file = st.file_uploader("📄 Service Report", type=['pdf'])
-                btn_sub = st.form_submit_button("💾 SIMPAN & DOWNLOAD PDF")
+                btn_sub = st.form_submit_button("💾 SIMPAN & GENERATE LAPORAN")
+
+            # Tempat penampung tombol download di luar form agar stabil muncul
+            if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
+                st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan!")
+                st.download_button(
+                    label="📥 KLIK DI SINI UNTUK DOWNLOAD PDF", 
+                    data=st.session_state.pdf_data, 
+                    file_name=st.session_state.pdf_name,
+                    mime="application/pdf"
+                )
+                # Bersihkan session state setelah didownload agar tidak menumpuk
+                if st.button("🧹 Bersihkan Form / Input Baru"):
+                    del st.session_state.pdf_ready
+                    del st.session_state.pdf_data
+                    del st.session_state.pdf_name
+                    del st.session_state.last_customer
+                    st.rerun()
 
             if btn_sub:
                 with st.spinner("Sedang memproses..."):
@@ -289,7 +303,7 @@ if check_password():
                         
                         pdf.set_font("Arial", "B", 11)
                         pdf.cell(0, 7, f"Customer: {customer}", ln=True)
-                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_iso}", ln=True)
+                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
                         pdf.ln(2); pdf.set_font("Arial", "", 11)
                         pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                         
@@ -325,11 +339,16 @@ if check_password():
                         if report_file: merger.append(io.BytesIO(report_file.read()))
                         
                         f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
+                        
+                        # Simpan hasil render PDF ke session state agar tidak hilang saat halaman termuat ulang
+                        st.session_state.pdf_data = f_buf.getvalue()
+                        st.session_state.pdf_name = f"Laporan_{customer}_{tgl_iso}.pdf"
+                        st.session_state.last_customer = customer
+                        st.session_state.pdf_ready = True
+                        
                         if os.path.exists(main_out): os.remove(main_out)
                         for t in temp_n: os.remove(t)
-                                
-                        st.success(f"✅ Data {customer} Berhasil Disimpan!")
-                        st.download_button("📥 KLIK DI SINI UNTUK DOWNLOAD PDF", f_buf.getvalue(), f"Laporan_{customer}_{tgl_iso}.pdf")
+                        
                         st.rerun()
                     except Exception as e:
                         st.error(f"Gagal: {e}")
