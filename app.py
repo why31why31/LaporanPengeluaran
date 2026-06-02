@@ -38,7 +38,6 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            # Header disesuaikan dengan kolom ke-11 sebagai Lain-lain
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
@@ -73,12 +72,12 @@ def update_gdrive_link(nama_user, row_index, link, label):
     try:
         service = get_gcp_service('sheets', 'v4')
         formula = f'=HYPERLINK("{link}"; "{label}")'
-        range_name = f"'{nama_user}'!M{row_index}"
+        target_range = f"'{nama_user}'!M{row_index}"
         body = {'values': [[formula]]}
         
         service.spreadsheets().values().update(
             spreadsheetId=SPREADSHEET_ID, 
-            range=range_name, 
+            range=target_range, 
             valueInputOption="USER_ENTERED", 
             body=body
         ).execute()
@@ -119,15 +118,23 @@ def check_password():
 # --- 4. APLIKASI UTAMA ---
 if check_password():
     st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
-    tab1, tab2 = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
+    
+    # LOGIKA MENU TAB BARU (Tab Admin otomatis muncul jika yang login adalah Admin)
+    list_tabs = ["📝 Input Laporan", "📊 Riwayat & Rincian"]
+    is_admin = st.session_state.user_nama == "Admin"
+    
+    if is_admin:
+        list_tabs.append("👨‍💼 Tab Admin (Semua Tim)")
+        
+    tabs = st.tabs(list_tabs)
 
-    with tab1:
+    # --- TAB 1: INPUT LAPORAN ---
+    with tabs[0]:
         st.sidebar.header(f"Halo, {st.session_state.user_nama}")
         if st.sidebar.button("Log Out"):
             st.session_state.password_correct = False
             st.rerun()
             
-        # Perubahan Nama di Sini: Bahan/Alat -> Lain-lain
         opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
         lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
         spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
@@ -155,9 +162,8 @@ if check_password():
             col_c, col_d = st.columns(2)
             if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
             if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
-            if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
+            if "Uang Makan" in opsi_biayay if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
             if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
-            # Perubahan Nama di Sini: Bahan/Alat -> Lain-lain
             if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0)
             
             bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
@@ -189,7 +195,6 @@ if check_password():
                     pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                     pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
                     pdf.set_font("Arial", "", 11)
-                    # Label PDF juga diubah
                     dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
                     for k, v in dict_b.items():
                         if v > 0:
@@ -220,7 +225,8 @@ if check_password():
                 except Exception as e:
                     st.error(f"Gagal: {e}")
 
-    with tab2:
+    # --- TAB 2: RIWAYAT MANDIRI (PERSONAL) ---
+    with tabs[1]:
         st.header(f"📊 Riwayat: {st.session_state.user_nama}")
         df = get_user_data(st.session_state.user_nama)
         if not df.empty:
@@ -257,7 +263,6 @@ if check_password():
                                 st.rerun()
 
                     st.divider()
-                    # Rincian Biaya disesuaikan labelnya
                     list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Lain-lain": "Lain-lain"}
                     for label, kolom in list_kategori.items():
                         nilai = row.get(kolom, 0)
@@ -265,11 +270,33 @@ if check_password():
                             val = float(str(nilai).replace(',', ''))
                             if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
                         except: continue
-                    
                     st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                    
                     if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
                         delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
                         st.success("Data berhasil dihapus!"); st.rerun()
         else:
             st.info("Belum ada data riwayat.")
+
+    # --- TAB 3: KHUSUS ADMIN (Hanya Bisa Diakses Akun Admin) ---
+    if is_admin:
+        with tabs[2]:
+            st.header("👨‍💼 Panel Monitoring Admin")
+            st.write("Pilih nama anggota tim di bawah ini untuk melihat lembar riwayat input mereka secara real-time.")
+            
+            # Mengambil daftar nama tim di luar Admin
+            list_tim = [nama for nama in USERS_CREDENTIALS.keys() if nama != "Admin"]
+            target_user = st.selectbox("🎯 Pilih Nama Teknisi/User:", list_tim)
+            
+            st.divider()
+            st.subheader(f"📋 Lembar Data Laporan: {target_user}")
+            
+            df_admin = get_user_data(target_user)
+            if not df_admin.empty:
+                # Membuat salinan DataFrame untuk mempercantik tampilan tabel admin
+                df_display = df_admin.copy()
+                df_display['Tanggal'] = df_display['Tanggal'].dt.strftime('%Y-%m-%d')
+                
+                # Menghilangkan kolom index internal agar rapi saat dilihat Admin
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
