@@ -119,7 +119,7 @@ def check_password():
 if check_password():
     st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
     
-    # LOGIKA MENU TAB BARU (Tab Admin otomatis muncul jika yang login adalah Admin)
+    # Logika Tab Admin (Otomatis muncul jika yang login adalah Admin)
     list_tabs = ["📝 Input Laporan", "📊 Riwayat & Rincian"]
     is_admin = st.session_state.user_nama == "Admin"
     
@@ -162,7 +162,9 @@ if check_password():
             col_c, col_d = st.columns(2)
             if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
             if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
-            if "Uang Makan" in opsi_biayay if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
+            
+            # SUDAH DIPERBAIKI (TIDAK TYPO LAGI)
+            if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
             if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
             if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0)
             
@@ -277,13 +279,12 @@ if check_password():
         else:
             st.info("Belum ada data riwayat.")
 
-    # --- TAB 3: KHUSUS ADMIN (Hanya Bisa Diakses Akun Admin) ---
+    # --- TAB 3: KHUSUS ADMIN ---
     if is_admin:
         with tabs[2]:
             st.header("👨‍💼 Panel Monitoring Admin")
             st.write("Pilih nama anggota tim di bawah ini untuk melihat lembar riwayat input mereka secara real-time.")
             
-            # Mengambil daftar nama tim di luar Admin
             list_tim = [nama for nama in USERS_CREDENTIALS.keys() if nama != "Admin"]
             target_user = st.selectbox("🎯 Pilih Nama Teknisi/User:", list_tim)
             
@@ -292,11 +293,8 @@ if check_password():
             
             df_admin = get_user_data(target_user)
             if not df_admin.empty:
-                # Membuat salinan DataFrame untuk mempercantik tampilan tabel admin
                 df_display = df_admin.copy()
                 df_display['Tanggal'] = df_display['Tanggal'].dt.strftime('%Y-%m-%d')
-                
-                # Menghilangkan kolom index internal agar rapi saat dilihat Admin
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
