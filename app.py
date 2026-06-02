@@ -166,10 +166,11 @@ if check_password():
                 st.metric(label=f"📊 Total Pengeluaran 7 Hari Terakhir ({target_user})", value=f"Rp {total_mingguan:,.0f}")
                 
                 st.divider()
-                st.subheader(f"📋 Detail Laporan & Konfirmasi Pembayaran: {target_user}")
+                st.subheader(f"📋 Semua Laporan Pengeluaran: {target_user}")
                 
                 df_admin['original_row_index'] = df_admin.index + 2
                 
+                # UPDATE: Menampilkan semua secara langsung (tanpa expander lipat)
                 for i, row in df_admin.iterrows():
                     tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
                     cust_name = row.get('Customer', 'Unknown')
@@ -177,19 +178,40 @@ if check_password():
                     
                     status_lunas = (current_status == "Sudah Dibayar Admin")
                     
-                    with st.expander(f"📅 {tgl_str} - {cust_name} | Total: Rp {float(row['Total_Angka']):,.0f} | 📌 Status: {current_status if current_status else 'Pending'}"):
-                        st.markdown(f"**Keperluan / Detail Pekerjaan:** {row.get('Keperluan')}")
-                        st.write(f"Total Pengeluaran: **Rp {float(row['Total_Angka']):,.0f}**")
+                    # Tampilan kotak kontainer informasi terbuka
+                    st.markdown(f"### 📅 {tgl_str} - {cust_name}")
+                    
+                    # Status Box untuk Admin
+                    if status_lunas:
+                        st.success("💰 **Status: Sudah Dibayarkan Admin**")
+                    else:
+                        st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
                         
-                        col_chk, col_space = st.columns([2, 2])
-                        with col_chk:
-                            confirm_pay = st.checkbox("💸 Tandai bon ini sebagai 'Sudah Dibayar'", value=status_lunas, key=f"pay_chk_{i}")
-                            
-                            if confirm_pay != status_lunas:
-                                status_baru = "Sudah Dibayar Admin" if confirm_pay else ""
-                                if update_payment_status(target_user, int(row['original_row_index']), status_baru):
-                                    st.toast("Status pembayaran berhasil diperbarui!", icon="💰")
-                                    st.rerun()
+                    st.markdown(f"**Keperluan / Detail Pekerjaan:** {row.get('Keperluan')}")
+                    
+                    # Tampilkan rincian kategori biaya yang > 0 secara detail ke Admin
+                    list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Lain-lain": "Lain-lain"}
+                    for label, kolom in list_kategori.items():
+                        nilai_biaya = row.get(kolom, 0)
+                        try:
+                            val = float(str(nilai_biaya).replace(',', ''))
+                            if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
+                        except: continue
+                        
+                    st.write(f"**Total Pengeluaran Laporan Ini:** Rp {float(row['Total_Angka']):,.0f}")
+                    
+                    # Checkbox Konfirmasi Pembayaran Bon
+                    col_chk, col_space = st.columns([2, 2])
+                    with col_chk:
+                        confirm_pay = st.checkbox("💸 Tandai bon ini sebagai 'Sudah Dibayar'", value=status_lunas, key=f"pay_chk_{i}")
+                        
+                        if confirm_pay != status_lunas:
+                            status_baru = "Sudah Dibayar Admin" if confirm_pay else ""
+                            if update_payment_status(target_user, int(row['original_row_index']), status_baru):
+                                st.toast("Status pembayaran diperbarui!", icon="💰")
+                                st.rerun()
+                                
+                    st.divider() # Batas antar laporan pengeluaran
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
                 
@@ -263,7 +285,6 @@ if check_password():
                         pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
                         pdf.set_font("Arial", "", 11)
                         
-                        # BAGIAN DI SINI SUDAH AKURAT & DITUTUP DENGAN BENAR
                         dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
                         for k, v in dict_b.items():
                             if v > 0:
@@ -353,7 +374,7 @@ if check_password():
                                 if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
                             except: continue
                         st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                        if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
+                        if st.button(f"🗑️ Haporan Ini", key=f"del_lap_{i}"):
                             delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
                             st.success("Data berhasil dihapus!"); st.rerun()
             else:
