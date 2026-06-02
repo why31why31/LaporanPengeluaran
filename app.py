@@ -38,7 +38,6 @@ def append_to_sheets(nama_user, data):
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            # Header baru mencakup Link GDrive (M) dan Status Bayar (N)
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
@@ -49,25 +48,43 @@ def append_to_sheets(nama_user, data):
 def get_user_data(nama_user):
     try:
         service = get_gcp_service('sheets', 'v4')
-        # Ambil sampai kolom N (kolom ke-14)
+        # Ambil seluruh baris data dari kolom A sampai N
         result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N").execute()
         values = result.get('values', [])
-        if not values or len(values) < 2: return pd.DataFrame()
         
+        if not values or len(values) < 2: 
+            return pd.DataFrame()
+        
+        # 14 Kolom wajib
         max_cols = 14
         processed_values = []
-        header = values[0]
         
+        # Ambil header standar agar tidak bentrok dengan data lama di Sheets
+        header = ["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]
+        
+        # Proses setiap baris di Sheets secara aman
         for row in values[1:]:
+            # Jika ada baris kosong, lewati
+            if not row or row[0] == "":
+                continue
+            # Jika jumlah kolom kurang dari 14, tambahkan string kosong sampai pas 14 kolom
             while len(row) < max_cols:
                 row.append("")
+            # Batasi hanya mengambil maksimal 14 kolom pertama
             processed_values.append(row[:max_cols])
             
+        if not processed_values:
+            return pd.DataFrame()
+            
         df = pd.DataFrame(processed_values, columns=header)
-        df['Tanggal'] = pd.to_datetime(df['Tanggal'])
+        df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+        # Buang baris jika tanggal gagal terbaca
+        df = df.dropna(subset=['Tanggal'])
         df = df.sort_values(by='Tanggal', ascending=False)
         return df
-    except:
+    except Exception as e:
+        # Menampilkan log error jika ada kendala pembacaan data structure
+        st.error(f"Gagal memproses data riwayat: {e}")
         return pd.DataFrame()
 
 def update_gdrive_link(nama_user, row_index, link, label):
@@ -82,7 +99,6 @@ def update_gdrive_link(nama_user, row_index, link, label):
         st.error(f"Gagal update link: {e}")
         return False
 
-# Fungsi memperbarui status pembayaran di Kolom N
 def update_payment_status(nama_user, row_index, status_text):
     try:
         service = get_gcp_service('sheets', 'v4')
@@ -237,7 +253,6 @@ if check_password():
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        # PERBAIKAN: Ditambahkan 2 elemen kosong di paling akhir untuk kolom M dan N agar baris data lengkap 14 Kolom!
                         append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, "", ""])
                         
                         pdf = FPDF()
@@ -257,97 +272,4 @@ if check_password():
                         pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                         pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
                         pdf.set_font("Arial", "", 11)
-                        dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
-                        for k, v in dict_b.items():
-                            if v > 0:
-                                pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
-                        pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
-
-                        if is_lembur:
-                            pdf.ln(4)
-                            pdf.set_fill_color(255, 255, 0)
-                            pdf.set_font("Arial", "B", 11)
-                            pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
-
-                        temp_n = []; nota_pdfs = []
-                        if bukti_files:
-                            pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
-                            for i, f in enumerate(bukti_files):
-                                if f.type == "application/pdf": nota_pdfs.append(f)
-                                else:
-                                    img = Image.open(f).convert("RGB"); t_n = f"temp_nota_{i}.jpg"
-                                    img.save(t_n, "JPEG"); temp_n.append(t_n)
-                                    pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
-
-                        main_out = "temp_render.pdf"; pdf.output(main_out)
-                        merger = PdfWriter(); merger.append(main_out)
-                        for n_pdf in nota_pdfs: merger.append(io.BytesIO(n_pdf.read()))
-                        if report_file: merger.append(io.BytesIO(report_file.read()))
-                        
-                        f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
-                        if os.path.exists(main_out): os.remove(main_out)
-                        for t in temp_n: os.remove(t)
-                                
-                        st.success(f"✅ Data {customer} Berhasil Disimpan!")
-                        st.download_button("📥 KLIK DI SINI UNTUK DOWNLOAD PDF", f_buf.getvalue(), f"Laporan_{customer}_{tgl_iso}.pdf")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Gagal: {e}")
-
-        # --- TAB 2: RIWAYAT MANDIRI ---
-        with tabs[1]:
-            st.header(f"📊 Riwayat: {st.session_state.user_nama}")
-            df = get_user_data(st.session_state.user_nama)
-            if not df.empty:
-                df['original_row_index'] = df.index + 2
-                for i, row in df.iterrows():
-                    tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
-                    cust_name = row.get('Customer', 'Unknown')
-                    label_hyperlink = f"{cust_name}_{tgl_str}"
-
-                    with st.expander(f"📅 {tgl_str} - {cust_name}"):
-                        status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
-                        if status_bayar_user == "Sudah Dibayar Admin":
-                            st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
-                        else:
-                            st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
-                            
-                        st.markdown(f"**Customer:** {cust_name}")
-                        
-                        raw_link = row.iloc[12] if len(row) >= 13 else ""
-                        display_link = ""
-                        
-                        if 'HYPERLINK' in str(raw_link):
-                            urls = re.findall(r'"(http[^"]+)"', str(raw_link))
-                            if urls: display_link = urls[0]
-                        elif str(raw_link).startswith("http"):
-                            display_link = str(raw_link)
-
-                        if display_link:
-                            st.success(f"🔗 [Buka PDF: {label_hyperlink}]({display_link})")
-                        
-                        st.divider()
-                        st.write("🔗 **Update Link GDrive (Label otomatis rapi):**")
-                        c_link, c_save = st.columns([3, 1])
-                        with c_link:
-                            link_val = st.text_input("Paste Link PDF:", value=display_link, key=f"link_txt_{i}", label_visibility="collapsed")
-                        with c_save:
-                            if st.button("💾 Simpan", key=f"btn_link_{i}"):
-                                if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val, label_hyperlink):
-                                    st.toast("Link berhasil disimpan!", icon="✅")
-                                    st.rerun()
-
-                        st.divider()
-                        list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Lain-lain": "Lain-lain"}
-                        for label, kolom in list_kategori.items():
-                            nilai = row.get(kolom, 0)
-                            try:
-                                val = float(str(nilai).replace(',', ''))
-                                if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
-                            except: continue
-                        st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                        if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
-                            delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
-                            st.success("Data berhasil dihapus!"); st.rerun()
-            else:
-                st.info("Belum ada data riwayat.")
+                        dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir
