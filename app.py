@@ -155,7 +155,6 @@ if check_password():
             df_admin = get_user_data(target_user)
             
             if not df_admin.empty:
-                # Perhitungan total angka bersih
                 df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
                 
                 hari_ini = datetime.now()
@@ -168,36 +167,48 @@ if check_password():
                 
                 st.divider()
                 st.subheader(f"📋 Spreadsheet Laporan Pengeluaran: {target_user}")
-                st.caption("💡 Petunjuk: Anda bisa mencentang langsung kolom 'Status Lunas' pada tabel di bawah ini, lalu klik tombol 'Simpan Pembayaran' untuk memperbarui database.")
+                st.caption("💡 Petunjuk: Kolom 'Link Dokumen' berisi tautan langsung ke Google Drive. Anda bisa mencentang kolom 'Status Lunas' lalu klik tombol di bawah untuk menyimpan.")
                 
-                # Menyiapkan baris index asli Sheets
                 df_admin['original_row_index'] = df_admin.index + 2
                 
-                # Membuat format dataframe khusus spreadsheet agar bisa diedit
                 df_sheet = df_admin.copy()
                 df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
                 
-                # Mengubah teks status menjadi Boolean (True/False) agar berubah jadi Checkbox di tabel
+                # --- PROSES EKSTRAK LINK ASLI DARI RUMUS HYPERLINK UNTUK SPREADSHEET ADMIN ---
+                cleaned_links = []
+                for val in df_sheet['Link GDrive']:
+                    if 'HYPERLINK' in str(val):
+                        urls = re.findall(r'"(http[^"]+)"', str(val))
+                        cleaned_links.append(urls[0] if urls else "")
+                    else:
+                        cleaned_links.append(str(val) if str(val).startswith("http") else "")
+                df_sheet['Link Dokumen'] = cleaned_links
+                
                 df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
                 
-                # Memilih susunan kolom yang ingin ditampilkan ke Admin di tabel spreadsheet
-                kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Status Lunas"]
+                # Menambahkan 'Link Dokumen' ke dalam urutan kolom yang ditampilkan
+                kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas"]
                 df_tampil = df_sheet[kolom_tampil]
                 
-                # Menampilkan data dalam bentuk Tabel Spreadsheet yang bisa dicentang langsung
+                # Menampilkan Tabel Spreadsheet dengan kolom Link aktif yang bisa diklik
                 edited_df = st.data_editor(
                     df_tampil,
                     use_container_width=True,
                     hide_index=True,
-                    disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total"] # Kunci kolom lain agar tidak bisa diedit sembarangan
+                    disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen"],
+                    column_config={
+                        "Link Dokumen": st.column_config.LinkColumn(
+                            "📄 Link Dokumen", 
+                            help="Klik untuk membuka PDF Service Report di GDrive",
+                            display_text="Buka Lampiran" # Mengubah teks link panjang jadi tulisan pendek rapi
+                        )
+                    }
                 )
                 
-                # Tombol Simpan Perubahan data dari spreadsheet ke Google Sheets
                 if st.button("💾 Simpan Perubahan Pembayaran"):
                     perubahan_terjadi = False
                     with st.spinner("Menyimpan status ke Google Sheets..."):
                         for idx, row in edited_df.iterrows():
-                            # Cek apakah nilai checkbox berubah dibanding data awal
                             nilai_baru_checkbox = row['Status Lunas']
                             nilai_lama_checkbox = df_sheet.loc[idx, 'Status Lunas']
                             
@@ -205,7 +216,6 @@ if check_password():
                                 original_row = int(df_admin.loc[idx, 'original_row_index'])
                                 status_teks = "Sudah Dibayar Admin" if nilai_baru_checkbox else ""
                                 
-                                # Tembak data status ke Kolom N Google Sheets
                                 update_payment_status(target_user, original_row, status_teks)
                                 perubahan_terjadi = True
                                 
