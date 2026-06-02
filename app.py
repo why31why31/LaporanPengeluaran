@@ -287,7 +287,7 @@ if check_password():
         # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
-            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
+            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 80, 80)
             spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
             lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
             kop_exist = os.path.exists(KOP_FILE_PATH)
@@ -357,21 +357,21 @@ if check_password():
                         else:
                             pdf.set_y(20)
                         
-                        pdf.set_font("Arial", "B", 11)
+                        pdf.set_font("Arial", "B", 10)
                         pdf.cell(0, 7, f"Customer: {customer}", ln=True)
                         pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
-                        pdf.ln(2); pdf.set_font("Arial", "", 11)
+                        pdf.ln(2); pdf.set_font("Arial", "", 10)
                         pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                         
-                        pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
+                        pdf.set_font("Arial", "B", 10); pdf.set_fill_color(240, 240, 240)
                         pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
-                        pdf.set_font("Arial", "", 11)
+                        pdf.set_font("Arial", "", 10)
                         
                         dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
                         for k, v in dict_b.items():
                             if v > 0:
                                 pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
-                        pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
+                        pdf.set_font("Arial", "B", 10); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
                         if is_lembur:
                             pdf.ln(4)
@@ -421,8 +421,8 @@ if check_password():
 
                     with st.expander(f"📅 {tgl_str} - {cust_name}"):
                         status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
-                        if status_bayar_user == "Sudah Dibayar Admin":
-                            st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
+                        if status_bayar_user == "Sudah Dibayar":
+                            st.success("💰 **Bon Sudah Dibayarkan**")
                         else:
                             st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
                             
