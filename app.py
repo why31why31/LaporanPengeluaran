@@ -9,6 +9,46 @@ import io
 import os
 from PIL import Image
 import re
+import base64
+
+# --- SETTING HALAMAN UTAMA (WAJIB DI PALING ATAS) ---
+st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
+
+# --- FUNGSI BACKGROUND TAMPILAN ---
+def set_background():
+    bg_file = "bg_finpac.jpg"
+    if os.path.exists(bg_file):
+        with open(bg_file, "rb") as f:
+            encoded_string = base64.b64encode(f.read()).decode()
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url(data:image/jpeg;base64,{encoded_string});
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+            }}
+            .stForm {{ background-color: rgba(255, 255, 255, 0.9); border-radius: 10px; padding: 20px; }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            """
+            <style>
+            .stApp {
+                background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            }
+            .stForm { background-color: rgba(255, 255, 255, 0.7); border-radius: 10px; padding: 20px; }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+# Panggil fungsi background agar aktif di seluruh halaman (termasuk halaman login)
+set_background()
 
 # --- 1. KONFIGURASI ---
 USERS_CREDENTIALS = {
@@ -168,23 +208,25 @@ def check_password():
         st.session_state.password_correct = False
         st.session_state.user_nama = ""
     if not st.session_state.password_correct:
-        st.header("🔐 Akses Terkunci - PT. Finpac")
-        user_input = st.selectbox("Pilih Nama Anda:", list(USERS_CREDENTIALS.keys()))
-        pwd_input = st.text_input("Masukkan Password Anda:", type="password")
-        if st.button("Masuk"):
-            if USERS_CREDENTIALS.get(user_input) == pwd_input:
-                st.session_state.password_correct = True
-                st.session_state.user_nama = user_input
-                st.rerun()
-            else:
-                st.error("Password Salah!")
+        st.markdown("<h1 style='text-align: center; color: #1f3a93;'>🔐 Akses Terkunci - PT. Finpac</h1>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            with st.container():
+                st.write("Silakan login untuk mengakses Sistem Laporan Pengeluaran.")
+                user_input = st.selectbox("Pilih Nama Anda:", list(USERS_CREDENTIALS.keys()))
+                pwd_input = st.text_input("Masukkan Password Anda:", type="password")
+                if st.button("Masuk", use_container_width=True):
+                    if USERS_CREDENTIALS.get(user_input) == pwd_input:
+                        st.session_state.password_correct = True
+                        st.session_state.user_nama = user_input
+                        st.rerun()
+                    else:
+                        st.error("Password Salah!")
         return False
     return True
 
 # --- 4. APLIKASI UTAMA ---
 if check_password():
-    st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
-    
     st.sidebar.header(f"Halo, {st.session_state.user_nama}")
     if st.sidebar.button("Log Out"):
         st.session_state.password_correct = False
@@ -442,8 +484,8 @@ if check_password():
 
                         with st.expander(f"📅 {tgl_str} - {cust_name}"):
                             status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
-                            if status_bayar_user == "Sudah Dibayar":
-                                st.success("💰 **Bon Sudah Dibayarkan**")
+                            if status_bayar_user == "Sudah Dibayar Admin":
+                                st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
                             else:
                                 st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
                                 
