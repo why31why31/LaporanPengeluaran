@@ -442,8 +442,8 @@ if check_password():
 
                         with st.expander(f"📅 {tgl_str} - {cust_name}"):
                             status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
-                            if status_bayar_user == "Sudah Dibayar Admin":
-                                st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
+                            if status_bayar_user == "Sudah Dibayar":
+                                st.success("💰 **Bon Sudah Dibayarkan**")
                             else:
                                 st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
                                 
