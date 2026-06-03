@@ -135,11 +135,37 @@ def get_user_data(nama_user):
         result_formula = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N", valueRenderOption="FORMULA").execute()
         formulas = result_formula.get('values', [])
         
+        # --- BACA FORMAT WARNA BACKGROUND DARI GOOGLE SHEETS ---
+        lembur_flags = []
+        try:
+            format_req = service.spreadsheets().get(
+                spreadsheetId=SPREADSHEET_ID,
+                ranges=[f"'{nama_user}'!A:A"], # Hanya perlu cek 1 kolom pertama untuk warna baris
+                includeGridData=True
+            ).execute()
+            
+            row_data = format_req.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
+            for r in row_data[1:]: # Skip header
+                is_l = False
+                try:
+                    vals = r.get('values', [])
+                    if vals:
+                        color = vals[0].get('effectiveFormat', {}).get('backgroundColor', {})
+                        # Jika merah dan hijau mendominasi (kuning), tandai True
+                        if color.get('red', 0) > 0.8 and color.get('green', 0) > 0.8 and color.get('blue', 0) < 0.2:
+                            is_l = True
+                except:
+                    pass
+                lembur_flags.append(is_l)
+        except Exception:
+            pass # Jika gagal tarik warna, biarkan list kosong
+        
         if not values or len(values) < 2: 
             return pd.DataFrame()
         
         max_cols = 14
         processed_values = []
+        processed_flags = []
         header = ["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]
         
         for i, row in enumerate(values[1:]):
@@ -157,10 +183,17 @@ def get_user_data(nama_user):
                     
             processed_values.append(row[:max_cols])
             
+            # Pasangkan status warna ke data
+            flag = False
+            if i < len(lembur_flags):
+                flag = lembur_flags[i]
+            processed_flags.append(flag)
+            
         if not processed_values:
             return pd.DataFrame()
             
         df = pd.DataFrame(processed_values, columns=header)
+        df['Is_Lembur'] = processed_flags # Kolom boolean khusus tanda warna
         df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
         df = df.dropna(subset=['Tanggal'])
         df = df.sort_values(by='Tanggal', ascending=False)
@@ -258,14 +291,13 @@ if check_password():
                 tgl_mulai_admin = col_d1.date_input("Dari Tanggal", datetime.now() - timedelta(days=7), key="d1_admin")
                 tgl_akhir_admin = col_d2.date_input("Sampai Tanggal", datetime.now(), key="d2_admin")
                 
-                # Menyaring dataframe berdasarkan rentang tanggal yang dipilih
                 mask_admin = (df_admin['Tanggal'].dt.date >= tgl_mulai_admin) & (df_admin['Tanggal'].dt.date <= tgl_akhir_admin)
                 df_admin_filtered = df_admin.loc[mask_admin].copy()
                 
                 st.subheader(f"📋 Spreadsheet Laporan: {target_user}")
                 
                 if not df_admin_filtered.empty:
-                    st.caption("💡 Petunjuk: Kolom 'Link Dokumen' berisi tautan langsung ke Google Drive. Anda bisa mencentang kolom 'Status Lunas' lalu klik tombol di bawah untuk menyimpan.")
+                    st.caption("💡 Petunjuk: Baris berwarna **Kuning** adalah tugas **Lembur**. Centang 'Status Lunas' lalu klik tombol Simpan.")
                     
                     df_sheet = df_admin_filtered.copy()
                     df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
@@ -282,11 +314,20 @@ if check_password():
                     df_sheet['Link Dokumen'] = cleaned_links
                     df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
                     
-                    kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas"]
+                    # Tambahkan Is_Lembur ke kolom untuk mewarnai baris
+                    kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas", "Is_Lembur"]
                     df_tampil = df_sheet[kolom_tampil]
                     
+                    # FUNGSI UNTUK MEWARNAI BARIS SPREADSHEET DI APLIKASI
+                    def warnai_baris(row):
+                        if row.get('Is_Lembur', False):
+                            return ['background-color: #fff2cc'] * len(row) # Kuning muda agar teks tetap terlihat
+                        return [''] * len(row)
+                        
+                    styled_df = df_tampil.style.apply(warnai_baris, axis=1)
+                    
                     edited_df = st.data_editor(
-                        df_tampil,
+                        styled_df,
                         use_container_width=True,
                         hide_index=True,
                         disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen"],
@@ -295,7 +336,8 @@ if check_password():
                                 "📄 Link Dokumen", 
                                 help="Klik untuk membuka PDF Service Report di GDrive",
                                 display_text="Buka Lampiran"
-                            )
+                            ),
+                            "Is_Lembur": None # Sembunyikan kolom indikator dari layar Admin
                         }
                     )
                     
@@ -321,7 +363,6 @@ if check_password():
                             
                     st.divider()
                     
-                    # Total pengeluaran sekarang menghitung HANYA data yang tampil di tabel
                     total_terpilih = df_admin_filtered['Total_Angka'].sum()
                     st.metric(label=f"📊 Total Pengeluaran (Tabel Terpilih)", value=f"Rp {total_terpilih:,.0f}")
                 
@@ -461,7 +502,6 @@ if check_password():
         with tabs[1]:
             st.header(f"📊 Riwayat: {st.session_state.user_nama}")
             
-            # --- FILTER TANGGAL USER ---
             st.write("📅 **Filter Tanggal Riwayat**")
             col_u1, col_u2 = st.columns(2)
             tgl_mulai_user = col_u1.date_input("Dari Tanggal", datetime.now() - timedelta(days=30), key="d1_user")
@@ -472,7 +512,6 @@ if check_password():
             if not df.empty:
                 df['original_row_index'] = df.index + 2
                 
-                # Menyaring dataframe berdasarkan rentang tanggal yang dipilih user
                 mask_user = (df['Tanggal'].dt.date >= tgl_mulai_user) & (df['Tanggal'].dt.date <= tgl_akhir_user)
                 df_filtered = df.loc[mask_user].copy()
                 
@@ -481,8 +520,14 @@ if check_password():
                         tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
                         cust_name = row.get('Customer', 'Unknown')
                         label_hyperlink = f"{cust_name}_{tgl_str}"
+                        
+                        # Tambahkan penanda khusus jika baris tersebut lembur
+                        lembur_marker = " 🟨 (Lembur)" if row.get('Is_Lembur', False) else ""
 
-                        with st.expander(f"📅 {tgl_str} - {cust_name}"):
+                        with st.expander(f"📅 {tgl_str} - {cust_name}{lembur_marker}"):
+                            if row.get('Is_Lembur', False):
+                                st.warning("⚠️ Laporan ini ditandai sebagai pekerjaan lembur.")
+                                
                             status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
                             if status_bayar_user == "Sudah Dibayar Admin":
                                 st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
