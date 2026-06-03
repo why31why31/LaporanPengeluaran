@@ -295,9 +295,9 @@ if check_password():
         # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
-            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
+            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 70)
             spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
-            lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
+            lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 90)
             kop_exist = os.path.exists(KOP_FILE_PATH)
 
             with st.form("main_form", clear_on_submit=False):
