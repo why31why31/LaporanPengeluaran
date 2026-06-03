@@ -41,7 +41,6 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
-        # Simpan data teks ke Sheets
         response = service.spreadsheets().values().append(
             spreadsheetId=SPREADSHEET_ID, 
             range=f"'{nama_user}'!A1", 
@@ -50,7 +49,6 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             body={'values': [data]}
         ).execute()
         
-        # PERBAIKAN: Selalu atur ulang warna baris baru agar tidak tertular baris atasnya
         updated_range = response.get('updates', {}).get('updatedRange', '')
         match = re.search(r'!A(\d+)', updated_range)
         if match:
@@ -59,7 +57,6 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
             sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
             
-            # Jika lembur kuning, jika tidak lembur paksa jadi putih bersih
             if is_lembur:
                 bg_color = {"red": 1.0, "green": 1.0, "blue": 0.0} 
             else:
@@ -210,73 +207,84 @@ if check_password():
             df_admin = get_user_data(target_user)
             
             if not df_admin.empty:
-                st.subheader(f"📋 Spreadsheet Laporan Pengeluaran: {target_user}")
-                st.caption("💡 Petunjuk: Kolom 'Link Dokumen' berisi tautan langsung ke Google Drive. Anda bisa mencentang kolom 'Status Lunas' lalu klik tombol di bawah untuk menyimpan.")
-                
                 df_admin['original_row_index'] = df_admin.index + 2
-                
-                df_sheet = df_admin.copy()
-                df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
-                
-                cleaned_links = []
-                for val in df_sheet['Link GDrive']:
-                    val_str = str(val)
-                    urls = re.findall(r'(https?://[^\s",]+)', val_str)
-                    if urls:
-                        cleaned_links.append(urls[0])
-                    else:
-                        cleaned_links.append(None)
-                        
-                df_sheet['Link Dokumen'] = cleaned_links
-                df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
-                
-                kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas"]
-                df_tampil = df_sheet[kolom_tampil]
-                
-                edited_df = st.data_editor(
-                    df_tampil,
-                    use_container_width=True,
-                    hide_index=True,
-                    disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen"],
-                    column_config={
-                        "Link Dokumen": st.column_config.LinkColumn(
-                            "📄 Link Dokumen", 
-                            help="Klik untuk membuka PDF Service Report di GDrive",
-                            display_text="Buka Lampiran"
-                        )
-                    }
-                )
-                
-                if st.button("💾 Simpan Perubahan Pembayaran"):
-                    perubahan_terjadi = False
-                    with st.spinner("Menyimpan status ke Google Sheets..."):
-                        for idx, row in edited_df.iterrows():
-                            nilai_baru_checkbox = row['Status Lunas']
-                            nilai_lama_checkbox = df_sheet.loc[idx, 'Status Lunas']
-                            
-                            if nilai_baru_checkbox != nilai_lama_checkbox:
-                                original_row = int(df_admin.loc[idx, 'original_row_index'])
-                                status_teks = "Sudah Dibayar Admin" if nilai_baru_checkbox else ""
-                                
-                                update_payment_status(target_user, original_row, status_teks)
-                                perubahan_terjadi = True
-                                
-                    if perubahan_terjadi:
-                        st.success("✅ Semua status pembayaran berhasil diperbarui!")
-                        st.rerun()
-                    else:
-                        st.info("Tidak ada perubahan status yang diubah.")
-                        
-                st.divider()
-                
                 df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
-                hari_ini = datetime.now()
-                tujuh_hari_lalu = hari_ini - timedelta(days=7)
                 
-                df_mingguan = df_admin[df_admin['Tanggal'] >= tujuh_hari_lalu]
-                total_mingguan = df_mingguan['Total_Angka'].sum()
+                # --- FILTER TANGGAL ADMIN ---
+                st.write("📅 **Filter Tanggal Laporan**")
+                col_d1, col_d2 = st.columns(2)
+                tgl_mulai_admin = col_d1.date_input("Dari Tanggal", datetime.now() - timedelta(days=7), key="d1_admin")
+                tgl_akhir_admin = col_d2.date_input("Sampai Tanggal", datetime.now(), key="d2_admin")
                 
-                st.metric(label=f"📊 Total Pengeluaran 7 Hari Terakhir ({target_user})", value=f"Rp {total_mingguan:,.0f}")
+                # Menyaring dataframe berdasarkan rentang tanggal yang dipilih
+                mask_admin = (df_admin['Tanggal'].dt.date >= tgl_mulai_admin) & (df_admin['Tanggal'].dt.date <= tgl_akhir_admin)
+                df_admin_filtered = df_admin.loc[mask_admin].copy()
+                
+                st.subheader(f"📋 Spreadsheet Laporan: {target_user}")
+                
+                if not df_admin_filtered.empty:
+                    st.caption("💡 Petunjuk: Kolom 'Link Dokumen' berisi tautan langsung ke Google Drive. Anda bisa mencentang kolom 'Status Lunas' lalu klik tombol di bawah untuk menyimpan.")
+                    
+                    df_sheet = df_admin_filtered.copy()
+                    df_sheet['Tanggal'] = df_sheet['Tanggal'].dt.strftime('%Y-%m-%d')
+                    
+                    cleaned_links = []
+                    for val in df_sheet['Link GDrive']:
+                        val_str = str(val)
+                        urls = re.findall(r'(https?://[^\s",]+)', val_str)
+                        if urls:
+                            cleaned_links.append(urls[0])
+                        else:
+                            cleaned_links.append(None)
+                            
+                    df_sheet['Link Dokumen'] = cleaned_links
+                    df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
+                    
+                    kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas"]
+                    df_tampil = df_sheet[kolom_tampil]
+                    
+                    edited_df = st.data_editor(
+                        df_tampil,
+                        use_container_width=True,
+                        hide_index=True,
+                        disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen"],
+                        column_config={
+                            "Link Dokumen": st.column_config.LinkColumn(
+                                "📄 Link Dokumen", 
+                                help="Klik untuk membuka PDF Service Report di GDrive",
+                                display_text="Buka Lampiran"
+                            )
+                        }
+                    )
+                    
+                    if st.button("💾 Simpan Perubahan Pembayaran"):
+                        perubahan_terjadi = False
+                        with st.spinner("Menyimpan status ke Google Sheets..."):
+                            for idx, row in edited_df.iterrows():
+                                nilai_baru_checkbox = row['Status Lunas']
+                                nilai_lama_checkbox = df_sheet.loc[idx, 'Status Lunas']
+                                
+                                if nilai_baru_checkbox != nilai_lama_checkbox:
+                                    original_row = int(df_admin_filtered.loc[idx, 'original_row_index'])
+                                    status_teks = "Sudah Dibayar Admin" if nilai_baru_checkbox else ""
+                                    
+                                    update_payment_status(target_user, original_row, status_teks)
+                                    perubahan_terjadi = True
+                                    
+                        if perubahan_terjadi:
+                            st.success("✅ Semua status pembayaran berhasil diperbarui!")
+                            st.rerun()
+                        else:
+                            st.info("Tidak ada perubahan status yang diubah.")
+                            
+                    st.divider()
+                    
+                    # Total pengeluaran sekarang menghitung HANYA data yang tampil di tabel
+                    total_terpilih = df_admin_filtered['Total_Angka'].sum()
+                    st.metric(label=f"📊 Total Pengeluaran (Tabel Terpilih)", value=f"Rp {total_terpilih:,.0f}")
+                
+                else:
+                    st.info(f"Tidak ada data laporan pada rentang tanggal {tgl_mulai_admin.strftime('%d/%m/%Y')} hingga {tgl_akhir_admin.strftime('%d/%m/%Y')}.")
                 
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
@@ -287,7 +295,7 @@ if check_password():
         # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
-            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 80, 80)
+            lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 190)
             spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
             lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 150)
             kop_exist = os.path.exists(KOP_FILE_PATH)
@@ -346,7 +354,6 @@ if check_password():
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        # Parameter is_lembur dikirim untuk mengatur warna
                         append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, "", ""], is_lembur)
                         
                         pdf = FPDF()
@@ -357,21 +364,21 @@ if check_password():
                         else:
                             pdf.set_y(20)
                         
-                        pdf.set_font("Arial", "B", 10)
+                        pdf.set_font("Arial", "B", 11)
                         pdf.cell(0, 7, f"Customer: {customer}", ln=True)
                         pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
-                        pdf.ln(2); pdf.set_font("Arial", "", 10)
+                        pdf.ln(2); pdf.set_font("Arial", "", 11)
                         pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
                         
-                        pdf.set_font("Arial", "B", 10); pdf.set_fill_color(240, 240, 240)
+                        pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
                         pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
-                        pdf.set_font("Arial", "", 10)
+                        pdf.set_font("Arial", "", 11)
                         
                         dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
                         for k, v in dict_b.items():
                             if v > 0:
                                 pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
-                        pdf.set_font("Arial", "B", 10); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
+                        pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
                         if is_lembur:
                             pdf.ln(4)
@@ -411,57 +418,73 @@ if check_password():
         # --- TAB 2: RIWAYAT MANDIRI ---
         with tabs[1]:
             st.header(f"📊 Riwayat: {st.session_state.user_nama}")
+            
+            # --- FILTER TANGGAL USER ---
+            st.write("📅 **Filter Tanggal Riwayat**")
+            col_u1, col_u2 = st.columns(2)
+            tgl_mulai_user = col_u1.date_input("Dari Tanggal", datetime.now() - timedelta(days=30), key="d1_user")
+            tgl_akhir_user = col_u2.date_input("Sampai Tanggal", datetime.now(), key="d2_user")
+            st.divider()
+
             df = get_user_data(st.session_state.user_nama)
             if not df.empty:
                 df['original_row_index'] = df.index + 2
-                for i, row in df.iterrows():
-                    tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
-                    cust_name = row.get('Customer', 'Unknown')
-                    label_hyperlink = f"{cust_name}_{tgl_str}"
+                
+                # Menyaring dataframe berdasarkan rentang tanggal yang dipilih user
+                mask_user = (df['Tanggal'].dt.date >= tgl_mulai_user) & (df['Tanggal'].dt.date <= tgl_akhir_user)
+                df_filtered = df.loc[mask_user].copy()
+                
+                if not df_filtered.empty:
+                    for i, row in df_filtered.iterrows():
+                        tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
+                        cust_name = row.get('Customer', 'Unknown')
+                        label_hyperlink = f"{cust_name}_{tgl_str}"
 
-                    with st.expander(f"📅 {tgl_str} - {cust_name}"):
-                        status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
-                        if status_bayar_user == "Sudah Dibayar":
-                            st.success("💰 **Bon Sudah Dibayarkan**")
-                        else:
-                            st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
+                        with st.expander(f"📅 {tgl_str} - {cust_name}"):
+                            status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
+                            if status_bayar_user == "Sudah Dibayar Admin":
+                                st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
+                            else:
+                                st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
+                                
+                            st.markdown(f"**Customer:** {cust_name}")
                             
-                        st.markdown(f"**Customer:** {cust_name}")
-                        
-                        raw_link = row.iloc[12] if len(row) >= 13 else ""
-                        display_link = ""
-                        
-                        if 'HYPERLINK' in str(raw_link):
-                            urls = re.findall(r'"(http[^"]+)"', str(raw_link))
-                            if urls: display_link = urls[0]
-                        elif str(raw_link).startswith("http"):
-                            display_link = str(raw_link)
+                            raw_link = row.iloc[12] if len(row) >= 13 else ""
+                            display_link = ""
+                            
+                            if 'HYPERLINK' in str(raw_link):
+                                urls = re.findall(r'"(http[^"]+)"', str(raw_link))
+                                if urls: display_link = urls[0]
+                            elif str(raw_link).startswith("http"):
+                                display_link = str(raw_link)
 
-                        if display_link:
-                            st.success(f"🔗 [Buka PDF: {label_hyperlink}]({display_link})")
-                        
-                        st.divider()
-                        st.write("🔗 **Update Link GDrive (Label otomatis rapi):**")
-                        c_link, c_save = st.columns([3, 1])
-                        with c_link:
-                            link_val = st.text_input("Paste Link PDF:", value=display_link, key=f"link_txt_{i}", label_visibility="collapsed")
-                        with c_save:
-                            if st.button("💾 Simpan", key=f"btn_link_{i}"):
-                                if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val, label_hyperlink):
-                                    st.toast("Link berhasil disimpan!", icon="✅")
-                                    st.rerun()
+                            if display_link:
+                                st.success(f"🔗 [Buka PDF: {label_hyperlink}]({display_link})")
+                            
+                            st.divider()
+                            st.write("🔗 **Update Link GDrive (Label otomatis rapi):**")
+                            c_link, c_save = st.columns([3, 1])
+                            with c_link:
+                                link_val = st.text_input("Paste Link PDF:", value=display_link, key=f"link_txt_{i}", label_visibility="collapsed")
+                            with c_save:
+                                if st.button("💾 Simpan", key=f"btn_link_{i}"):
+                                    if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val, label_hyperlink):
+                                        st.toast("Link berhasil disimpan!", icon="✅")
+                                        st.rerun()
 
-                        st.divider()
-                        list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Lain-lain": "Lain-lain"}
-                        for label, kolom in list_kategori.items():
-                            values_cell = row.get(kolom, 0)
-                            try:
-                                val = float(str(values_cell).replace(',', ''))
-                                if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
-                            except: continue
-                        st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                        if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
-                            delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
-                            st.success("Data berhasil dihapus!"); st.rerun()
+                            st.divider()
+                            list_kategori = {"Bensin": "Bensin", "Toll": "Toll", "Parkir": "Parkir", "Makan Teknisi": "Makan Teknisi", "Uang Makan": "Uang Makan", "Hotel": "Hotel", "Lain-lain": "Lain-lain"}
+                            for label, kolom in list_kategori.items():
+                                values_cell = row.get(kolom, 0)
+                                try:
+                                    val = float(str(values_cell).replace(',', ''))
+                                    if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
+                                except: continue
+                            st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
+                            if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
+                                delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
+                                st.success("Data berhasil dihapus!"); st.rerun()
+                else:
+                    st.info(f"Tidak ada laporan pada rentang tanggal {tgl_mulai_user.strftime('%d/%m/%Y')} hingga {tgl_akhir_user.strftime('%d/%m/%Y')}.")
             else:
-                st.info("Belum ada data riwayat.")
+                st.info("Belum ada data riwayat sama sekali.")
