@@ -140,25 +140,24 @@ def get_user_data(nama_user):
         try:
             format_req = service.spreadsheets().get(
                 spreadsheetId=SPREADSHEET_ID,
-                ranges=[f"'{nama_user}'!A:A"], # Hanya perlu cek 1 kolom pertama untuk warna baris
+                ranges=[f"'{nama_user}'!A:A"],
                 includeGridData=True
             ).execute()
             
             row_data = format_req.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
-            for r in row_data[1:]: # Skip header
+            for r in row_data[1:]: 
                 is_l = False
                 try:
                     vals = r.get('values', [])
                     if vals:
                         color = vals[0].get('effectiveFormat', {}).get('backgroundColor', {})
-                        # Jika merah dan hijau mendominasi (kuning), tandai True
                         if color.get('red', 0) > 0.8 and color.get('green', 0) > 0.8 and color.get('blue', 0) < 0.2:
                             is_l = True
                 except:
                     pass
                 lembur_flags.append(is_l)
         except Exception:
-            pass # Jika gagal tarik warna, biarkan list kosong
+            pass 
         
         if not values or len(values) < 2: 
             return pd.DataFrame()
@@ -183,7 +182,6 @@ def get_user_data(nama_user):
                     
             processed_values.append(row[:max_cols])
             
-            # Pasangkan status warna ke data
             flag = False
             if i < len(lembur_flags):
                 flag = lembur_flags[i]
@@ -193,7 +191,7 @@ def get_user_data(nama_user):
             return pd.DataFrame()
             
         df = pd.DataFrame(processed_values, columns=header)
-        df['Is_Lembur'] = processed_flags # Kolom boolean khusus tanda warna
+        df['Is_Lembur'] = processed_flags
         df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
         df = df.dropna(subset=['Tanggal'])
         df = df.sort_values(by='Tanggal', ascending=False)
@@ -314,14 +312,12 @@ if check_password():
                     df_sheet['Link Dokumen'] = cleaned_links
                     df_sheet['Status Lunas'] = df_sheet['Status Bayar'] == "Sudah Dibayar Admin"
                     
-                    # Tambahkan Is_Lembur ke kolom untuk mewarnai baris
                     kolom_tampil = ["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen", "Status Lunas", "Is_Lembur"]
                     df_tampil = df_sheet[kolom_tampil]
                     
-                    # FUNGSI UNTUK MEWARNAI BARIS SPREADSHEET DI APLIKASI
                     def warnai_baris(row):
                         if row.get('Is_Lembur', False):
-                            return ['background-color: #fff2cc'] * len(row) # Kuning muda agar teks tetap terlihat
+                            return ['background-color: #fff2cc'] * len(row)
                         return [''] * len(row)
                         
                     styled_df = df_tampil.style.apply(warnai_baris, axis=1)
@@ -337,7 +333,7 @@ if check_password():
                                 help="Klik untuk membuka PDF Service Report di GDrive",
                                 display_text="Buka Lampiran"
                             ),
-                            "Is_Lembur": None # Sembunyikan kolom indikator dari layar Admin
+                            "Is_Lembur": None 
                         }
                     )
                     
@@ -521,7 +517,6 @@ if check_password():
                         cust_name = row.get('Customer', 'Unknown')
                         label_hyperlink = f"{cust_name}_{tgl_str}"
                         
-                        # Tambahkan penanda khusus jika baris tersebut lembur
                         lembur_marker = " 🟨 (Lembur)" if row.get('Is_Lembur', False) else ""
 
                         with st.expander(f"📅 {tgl_str} - {cust_name}{lembur_marker}"):
@@ -567,10 +562,16 @@ if check_password():
                                     val = float(str(values_cell).replace(',', ''))
                                     if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
                                 except: continue
+                            
                             st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
-                            if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
-                                delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
-                                st.success("Data berhasil dihapus!"); st.rerun()
+                            
+                            # --- PENGUNCIAN TOMBOL HAPUS ---
+                            if status_bayar_user == "Sudah Dibayar Admin":
+                                st.error("🔒 Laporan ini tidak dapat dihapus karena sudah dikonfirmasi lunas oleh Admin.")
+                            else:
+                                if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
+                                    delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
+                                    st.success("Data berhasil dihapus!"); st.rerun()
                 else:
                     st.info(f"Tidak ada laporan pada rentang tanggal {tgl_mulai_user.strftime('%d/%m/%Y')} hingga {tgl_akhir_user.strftime('%d/%m/%Y')}.")
             else:
