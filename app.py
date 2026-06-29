@@ -52,7 +52,7 @@ set_background()
 
 # --- 1. KONFIGURASI ---
 USERS_CREDENTIALS = {
-    "Asep Wahyu": "as1234",
+    "Asep Wahyu": "as1",
     "Wahyu": "wahyu123",
     "Rangga": "rangga123",
     "Ali": "ali123",
