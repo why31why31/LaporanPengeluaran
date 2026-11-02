@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 from datetime import datetime, timedelta
 from fpdf import FPDF
@@ -56,66 +55,6 @@ def set_background():
 # Panggil fungsi background
 set_background()
 
-# --- FUNGSI RENDER PDF CANVAS (BEBAS BLOKIR CHROME) ---
-def render_pdf_js(pdf_bytes):
-    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    html_code = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-        <style>
-            #pdf-container {{
-                width: 100%;
-                height: 600px;
-                overflow-y: auto;
-                background-color: #525659;
-                text-align: center;
-                padding: 15px 0;
-                border-radius: 8px;
-            }}
-            canvas {{
-                margin: 10px auto;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-                max-width: 92%;
-                display: block;
-                background-color: #ffffff;
-            }}
-        </style>
-    </head>
-    <body style="margin:0; padding:0;">
-        <div id="pdf-container"></div>
-        <script>
-            const pdfData = atob("{base64_pdf}");
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
-            const loadingTask = pdfjsLib.getDocument({{data: pdfData}});
-            loadingTask.promise.then(function(pdf) {{
-                const container = document.getElementById('pdf-container');
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
-                    pdf.getPage(pageNum).then(function(page) {{
-                        const scale = 1.3;
-                        const viewport = page.getViewport({{scale: scale}});
-                        const canvas = document.createElement('canvas');
-                        const context = canvas.getContext('2d');
-                        canvas.height = viewport.height;
-                        canvas.width = viewport.width;
-                        container.appendChild(canvas);
-
-                        const renderContext = {{
-                            canvasContext: context,
-                            viewport: viewport
-                        }};
-                        page.render(renderContext);
-                    }});
-                }}
-            }});
-        </script>
-    </body>
-    </html>
-    """
-    components.html(html_code, height=620, scrolling=False)
-
 # --- 1. KONFIGURASI ---
 USERS_CREDENTIALS = {
     "Asep Wahyu": "as1",
@@ -132,7 +71,7 @@ KOP_FILE_PATH = "kop_tetap.jpg"
 # --- 2. FUNGSI GOOGLE SHEETS DENGAN OPTIMASI ---
 @st.cache_resource
 def get_gcp_service(service_name, version):
-    info = st.secrets["gcp_service_account"]
+    info = dict(st.secrets["gcp_service_account"])
     creds = service_account.Credentials.from_service_account_info(info)
     return build(service_name, version, credentials=creds)
 
@@ -432,7 +371,7 @@ if check_password():
     else:
         tabs = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
-        # --- TAB 1: INPUT LAPORAN (VISUAL & CANVAS PREVIEW) ---
+        # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
             lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 70)
@@ -471,11 +410,11 @@ if check_password():
                 bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
                 report_file = st.file_uploader("📄 Service Report", type=['pdf'])
                 
-                btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW PDF")
+                btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW LAPORAN")
 
-            # --- LOGIKA GENERATE VISUAL PREVIEW ---
+            # --- LOGIKA PREVIEW LAPORAN ---
             if btn_preview:
-                with st.spinner("Membuat bentuk PDF..."):
+                with st.spinner("Menyiapkan preview laporan..."):
                     try:
                         total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + lain_lain
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
@@ -515,6 +454,7 @@ if check_password():
                         # --- 2. Proses Lampiran ---
                         unique_id = uuid.uuid4().hex
                         temp_n = []; nota_pdfs = []
+                        preview_images = []
                         
                         if bukti_files:
                             pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
@@ -523,6 +463,8 @@ if check_password():
                                     nota_pdfs.append(f)
                                 else:
                                     img = Image.open(f).convert("RGB")
+                                    # Simpan copy preview untuk UI
+                                    preview_images.append(img)
                                     t_n = f"temp_nota_{unique_id}_{i}.jpg"
                                     img.save(t_n, "JPEG")
                                     temp_n.append(t_n)
@@ -540,6 +482,7 @@ if check_password():
                         
                         # Simpan PDF & Data ke Session State
                         st.session_state.preview_pdf_bytes = f_buf.getvalue()
+                        st.session_state.preview_images = preview_images
                         st.session_state.preview_data = {
                             "customer": customer, "tgl_iso": tgl_iso, "tgl_cetak": tgl_cetak, "nama_teknisi": nama_teknisi,
                             "keperluan": keperluan, "dict_biaya": dict_biaya, "bensin": bensin, "toll": toll, "parkir": parkir,
@@ -556,21 +499,53 @@ if check_password():
                     except Exception as e:
                         st.error(f"Gagal memproses Preview: {e}")
 
-            # --- BLOK PREVIEW TERAMANKAN ---
+            # --- BLOK TAMPILAN PREVIEW (NATIVE STREAMLIT) ---
             if 'preview_pdf_bytes' in st.session_state and st.session_state.preview_pdf_bytes:
                 st.markdown("---")
-                st.subheader("📑 Preview Hasil Cetak PDF Laporan & Lampiran")
+                st.subheader("📑 Visual Print Preview Laporan & Lampiran")
                 
-                # Render PDF via PDF.js Canvas Renderer (100% Bebas Blokir Chrome)
-                render_pdf_js(st.session_state.preview_pdf_bytes)
+                p = st.session_state.preview_data
                 
+                with st.container(border=True):
+                    if kop_exist:
+                        st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
+                    st.markdown(f"### **Customer: {p.get('customer', '')}**")
+                    st.write(f"**Pelaksana:** {p.get('nama_teknisi', '')} | **Tanggal:** {p.get('tgl_cetak', '')}")
+                    st.write(f"**Detail Pekerjaan:** {p.get('keperluan', '')}")
+                    st.divider()
+                    
+                    st.markdown("##### 💵 Rincian Pengeluaran Biaya:")
+                    df_preview_biaya = pd.DataFrame([
+                        {"Kategori Biaya": k, "Nominal": f"Rp {v:,.0f}"} 
+                        for k, v in p.get('dict_biaya', {}).items() if v > 0
+                    ])
+                    if not df_preview_biaya.empty:
+                        st.table(df_preview_biaya)
+                    
+                    st.markdown(f"### **TOTAL PENGELUARAN: Rp {p.get('total', 0):,.0f}**")
+                    
+                    if p.get('is_lembur', False):
+                        st.warning(f"🟨 **Status Lembur:** Belum termasuk lembur tgl ({p.get('tgl_cetak', '')})")
+                    
+                    st.divider()
+                    st.markdown("##### 📸 Preview Lampiran Nota & Dokumen:")
+                    if 'preview_images' in st.session_state and st.session_state.preview_images:
+                        cols = st.columns(min(3, len(st.session_state.preview_images)))
+                        for idx, img_obj in enumerate(st.session_state.preview_images):
+                            with cols[idx % 3]:
+                                st.image(img_obj, caption=f"Nota #{idx+1}", use_container_width=True)
+                    else:
+                        st.caption("Tidak ada lampiran gambar nota.")
+                        
+                    if p.get('has_report', False):
+                        st.info("📄 File Service Report (.pdf) terdeteksi & sudah digabungkan ke lembar PDF akhir.")
+
                 st.write("") 
                 col_conf1, col_conf2 = st.columns(2)
                 
                 # TOMBOL KONFIRMASI AKHIR
                 if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
                     with st.spinner("Mengunggah data ke Google Sheets..."):
-                        p = st.session_state.preview_data
                         append_to_sheets(
                             p['nama_teknisi'], 
                             [p['tgl_iso'], p['customer'], p['nama_teknisi'], p['keperluan'], 
@@ -586,11 +561,15 @@ if check_password():
                         
                         del st.session_state.preview_data
                         del st.session_state.preview_pdf_bytes
+                        if 'preview_images' in st.session_state:
+                            del st.session_state.preview_images
                         st.rerun()
 
                 if col_conf2.button("❌ Batal / Edit Kembali", use_container_width=True):
                     del st.session_state.preview_data
                     del st.session_state.preview_pdf_bytes
+                    if 'preview_images' in st.session_state:
+                        del st.session_state.preview_images
                     st.rerun()
 
             # --- BLOK DOWNLOAD ---
@@ -603,7 +582,7 @@ if check_password():
                     mime="application/pdf"
                 )
                 if st.button("🧹 Bersihkan Form / Input Baru"):
-                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes']:
+                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes', 'preview_images']:
                         if key in st.session_state:
                             del st.session_state[key]
                     st.rerun()
