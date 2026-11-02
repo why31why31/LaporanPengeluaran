@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from datetime import datetime, timedelta
 from fpdf import FPDF
@@ -55,6 +56,66 @@ def set_background():
 # Panggil fungsi background
 set_background()
 
+# --- FUNGSI RENDER PDF CANVAS (BEBAS BLOKIR CHROME) ---
+def render_pdf_js(pdf_bytes):
+    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+        <style>
+            #pdf-container {{
+                width: 100%;
+                height: 600px;
+                overflow-y: auto;
+                background-color: #525659;
+                text-align: center;
+                padding: 15px 0;
+                border-radius: 8px;
+            }}
+            canvas {{
+                margin: 10px auto;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                max-width: 92%;
+                display: block;
+                background-color: #ffffff;
+            }}
+        </style>
+    </head>
+    <body style="margin:0; padding:0;">
+        <div id="pdf-container"></div>
+        <script>
+            const pdfData = atob("{base64_pdf}");
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+            const loadingTask = pdfjsLib.getDocument({{data: pdfData}});
+            loadingTask.promise.then(function(pdf) {{
+                const container = document.getElementById('pdf-container');
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
+                    pdf.getPage(pageNum).then(function(page) {{
+                        const scale = 1.3;
+                        const viewport = page.getViewport({{scale: scale}});
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        container.appendChild(canvas);
+
+                        const renderContext = {{
+                            canvasContext: context,
+                            viewport: viewport
+                        }};
+                        page.render(renderContext);
+                    }});
+                }}
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    components.html(html_code, height=620, scrolling=False)
+
 # --- 1. KONFIGURASI ---
 USERS_CREDENTIALS = {
     "Asep Wahyu": "as1",
@@ -88,7 +149,6 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             if title == nama_user:
                 sheet_id = s.get('properties', {}).get('sheetId')
         
-        # Buat sheet baru jika nama user belum ada
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
             response = service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
@@ -96,7 +156,6 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
-        # Masukkan Data Baru
         response = service.spreadsheets().values().append(
             spreadsheetId=SPREADSHEET_ID, 
             range=f"'{nama_user}'!A1", 
@@ -105,7 +164,6 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             body={'values': [data]}
         ).execute()
         
-        # Eksekusi pewarnaan jika lembur
         updated_range = response.get('updates', {}).get('updatedRange', '')
         match = re.search(r'!A(\d+)', updated_range)
         if match and is_lembur:
@@ -142,7 +200,6 @@ def get_user_data(nama_user):
         result_formula = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N", valueRenderOption="FORMULA").execute()
         formulas = result_formula.get('values', [])
         
-        # --- BACA FORMAT WARNA BACKGROUND ---
         lembur_flags = []
         try:
             format_req = service.spreadsheets().get(
@@ -375,7 +432,7 @@ if check_password():
     else:
         tabs = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
-        # --- TAB 1: INPUT LAPORAN (VISUAL PREVIEW TERPERBAIKI) ---
+        # --- TAB 1: INPUT LAPORAN (VISUAL & CANVAS PREVIEW) ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
             lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 70)
@@ -502,44 +559,10 @@ if check_password():
             # --- BLOK PREVIEW TERAMANKAN ---
             if 'preview_pdf_bytes' in st.session_state and st.session_state.preview_pdf_bytes:
                 st.markdown("---")
-                st.subheader("📑 Crosscheck & Visual Preview Laporan")
+                st.subheader("📑 Preview Hasil Cetak PDF Laporan & Lampiran")
                 
-                p = st.session_state.preview_data
-                
-                # Render Tampilan Kartu Resume Dokumen (Sangat Rapi & Bebas Bloking Browser)
-                with st.container(border=True):
-                    if kop_exist:
-                        st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
-                    st.markdown(f"### **Customer: {p['customer']}**")
-                    st.write(f"**Pelaksana:** {p['nama_teknisi']} | **Tanggal:** {p['tgl_cetak']}")
-                    st.write(f"**Detail Pekerjaan:** {p['keperluan']}")
-                    st.divider()
-                    
-                    st.markdown("##### 💵 Rincian Pengeluaran Biaya:")
-                    df_preview_biaya = pd.DataFrame([
-                        {"Kategori Biaya": k, "Nominal": f"Rp {v:,.0f}"} 
-                        for k, v in p['dict_biaya'].items() if v > 0
-                    ])
-                    if not df_preview_biaya.empty:
-                        st.table(df_preview_biaya)
-                    
-                    st.markdown(f"### **TOTAL PENGELUARAN: Rp {p['total']:,.0f}**")
-                    
-                    if p['is_lembur']:
-                        st.warning(f"🟨 **Status Lembur:** Belum termasuk lembur tgl ({p['tgl_cetak']})")
-                    
-                    st.info(f"📎 **Lampiran PDF Tergabung:** {p['count_nota']} Nota Gambar/PDF, {1 if p['has_report'] else 0} File Service Report")
-
-                # viewer embed dengan tag object (kompatibel Chrome fallback)
-                with st.expander("👁️ Klik di sini jika ingin melihat Viewer PDF Langsung"):
-                    base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
-                    pdf_display = f'''
-                        <object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="550px">
-                            <embed src="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="550px" />
-                            <p>Chrome Anda memblokir preview PDF inline. Silakan gunakan <b>Visual Preview Kartu</b> di atas untuk crosscheck.</p>
-                        </object>
-                    '''
-                    st.markdown(pdf_display, unsafe_allow_html=True)
+                # Render PDF via PDF.js Canvas Renderer (100% Bebas Blokir Chrome)
+                render_pdf_js(st.session_state.preview_pdf_bytes)
                 
                 st.write("") 
                 col_conf1, col_conf2 = st.columns(2)
@@ -547,6 +570,7 @@ if check_password():
                 # TOMBOL KONFIRMASI AKHIR
                 if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
                     with st.spinner("Mengunggah data ke Google Sheets..."):
+                        p = st.session_state.preview_data
                         append_to_sheets(
                             p['nama_teknisi'], 
                             [p['tgl_iso'], p['customer'], p['nama_teknisi'], p['keperluan'], 
