@@ -105,7 +105,7 @@ def append_to_sheets(nama_user, data, is_lembur=False):
             body={'values': [data]}
         ).execute()
         
-        # Eksekusi pewarnaan jika lembur (Hemat 1 API Call)
+        # Eksekusi pewarnaan jika lembur
         updated_range = response.get('updates', {}).get('updatedRange', '')
         match = re.search(r'!A(\d+)', updated_range)
         if match and is_lembur:
@@ -375,7 +375,7 @@ if check_password():
     else:
         tabs = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
-        # --- TAB 1: INPUT LAPORAN (VISUAL PDF PREVIEW) ---
+        # --- TAB 1: INPUT LAPORAN (VISUAL PREVIEW TERPERBAIKI) ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
             lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 70)
@@ -424,7 +424,7 @@ if check_password():
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        # --- 1. Mulai Generate FPDF ---
+                        # --- 1. Generate FPDF ---
                         pdf = FPDF()
                         pdf.add_page()
                         if kop_exist:
@@ -455,7 +455,7 @@ if check_password():
                             pdf.set_font("Arial", "B", 11)
                             pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
 
-                        # --- 2. Proses Lampiran (Concurrency Safe) ---
+                        # --- 2. Proses Lampiran ---
                         unique_id = uuid.uuid4().hex
                         temp_n = []; nota_pdfs = []
                         
@@ -481,13 +481,14 @@ if check_password():
                         
                         f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                         
-                        # --- 3. Simpan PDF & Data ke Memory ---
+                        # Simpan PDF & Data ke Session State
                         st.session_state.preview_pdf_bytes = f_buf.getvalue()
                         st.session_state.preview_data = {
-                            "customer": customer, "tgl_iso": tgl_iso, "nama_teknisi": nama_teknisi,
-                            "keperluan": keperluan, "bensin": bensin, "toll": toll, "parkir": parkir,
+                            "customer": customer, "tgl_iso": tgl_iso, "tgl_cetak": tgl_cetak, "nama_teknisi": nama_teknisi,
+                            "keperluan": keperluan, "dict_biaya": dict_biaya, "bensin": bensin, "toll": toll, "parkir": parkir,
                             "makan_teknisi": makan_teknisi, "uang_makan": uang_makan, "hotel": hotel,
-                            "lain_lain": lain_lain, "total": total, "is_lembur": is_lembur
+                            "lain_lain": lain_lain, "total": total, "is_lembur": is_lembur,
+                            "count_nota": len(bukti_files), "has_report": bool(report_file)
                         }
                         
                         # Cleanup file sementara
@@ -498,15 +499,47 @@ if check_password():
                     except Exception as e:
                         st.error(f"Gagal memproses Preview: {e}")
 
-            # --- BLOK TAMPILAN VISUAL PREVIEW & TOMBOL KONFIRMASI ---
+            # --- BLOK PREVIEW TERAMANKAN ---
             if 'preview_pdf_bytes' in st.session_state and st.session_state.preview_pdf_bytes:
                 st.markdown("---")
-                st.subheader("📑 Visual Print Preview (Bentuk Asli PDF)")
+                st.subheader("📑 Crosscheck & Visual Preview Laporan")
                 
-                # Render base64 PDF di dalam iframe (viewer PDF browser)
-                base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
-                st.markdown(pdf_display, unsafe_allow_html=True)
+                p = st.session_state.preview_data
+                
+                # Render Tampilan Kartu Resume Dokumen (Sangat Rapi & Bebas Bloking Browser)
+                with st.container(border=True):
+                    if kop_exist:
+                        st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
+                    st.markdown(f"### **Customer: {p['customer']}**")
+                    st.write(f"**Pelaksana:** {p['nama_teknisi']} | **Tanggal:** {p['tgl_cetak']}")
+                    st.write(f"**Detail Pekerjaan:** {p['keperluan']}")
+                    st.divider()
+                    
+                    st.markdown("##### 💵 Rincian Pengeluaran Biaya:")
+                    df_preview_biaya = pd.DataFrame([
+                        {"Kategori Biaya": k, "Nominal": f"Rp {v:,.0f}"} 
+                        for k, v in p['dict_biaya'].items() if v > 0
+                    ])
+                    if not df_preview_biaya.empty:
+                        st.table(df_preview_biaya)
+                    
+                    st.markdown(f"### **TOTAL PENGELUARAN: Rp {p['total']:,.0f}**")
+                    
+                    if p['is_lembur']:
+                        st.warning(f"🟨 **Status Lembur:** Belum termasuk lembur tgl ({p['tgl_cetak']})")
+                    
+                    st.info(f"📎 **Lampiran PDF Tergabung:** {p['count_nota']} Nota Gambar/PDF, {1 if p['has_report'] else 0} File Service Report")
+
+                # viewer embed dengan tag object (kompatibel Chrome fallback)
+                with st.expander("👁️ Klik di sini jika ingin melihat Viewer PDF Langsung"):
+                    base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
+                    pdf_display = f'''
+                        <object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="550px">
+                            <embed src="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="550px" />
+                            <p>Chrome Anda memblokir preview PDF inline. Silakan gunakan <b>Visual Preview Kartu</b> di atas untuk crosscheck.</p>
+                        </object>
+                    '''
+                    st.markdown(pdf_display, unsafe_allow_html=True)
                 
                 st.write("") 
                 col_conf1, col_conf2 = st.columns(2)
@@ -514,9 +547,6 @@ if check_password():
                 # TOMBOL KONFIRMASI AKHIR
                 if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
                     with st.spinner("Mengunggah data ke Google Sheets..."):
-                        p = st.session_state.preview_data
-                        
-                        # Update ke Sheets
                         append_to_sheets(
                             p['nama_teknisi'], 
                             [p['tgl_iso'], p['customer'], p['nama_teknisi'], p['keperluan'], 
@@ -525,13 +555,11 @@ if check_password():
                             p['is_lembur']
                         )
                         
-                        # Shift PDF dari preview ke state final siap download
                         st.session_state.pdf_data = st.session_state.preview_pdf_bytes
                         st.session_state.pdf_name = f"Laporan_{p['customer']}_{p['tgl_iso']}.pdf"
                         st.session_state.last_customer = p['customer']
                         st.session_state.pdf_ready = True
                         
-                        # Bersihkan state preview
                         del st.session_state.preview_data
                         del st.session_state.preview_pdf_bytes
                         st.rerun()
@@ -545,7 +573,7 @@ if check_password():
             if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
                 st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan di Database!")
                 st.download_button(
-                    label="📥 KLIK DI SINI UNTUK DOWNLOAD PDF", 
+                    label="📥 KLIK DI SINI UNTUK DOWNLOAD PDF LAPORAN", 
                     data=st.session_state.pdf_data, 
                     file_name=st.session_state.pdf_name,
                     mime="application/pdf"
