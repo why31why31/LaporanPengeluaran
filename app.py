@@ -10,7 +10,7 @@ import os
 from PIL import Image
 import re
 import base64
-import uuid  # Tambahan untuk nama file unik (concurrency safe)
+import uuid
 
 # --- SETTING HALAMAN UTAMA (WAJIB DI PALING ATAS) ---
 st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
@@ -375,17 +375,13 @@ if check_password():
     else:
         tabs = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
-        # --- TAB 1: INPUT LAPORAN (DENGAN PRINT PREVIEW) ---
+        # --- TAB 1: INPUT LAPORAN (VISUAL PDF PREVIEW) ---
         with tabs[0]:
             opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
             lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 70)
             spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
             lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 90)
             kop_exist = os.path.exists(KOP_FILE_PATH)
-
-            # Inisialisasi state untuk preview
-            if 'preview_data' not in st.session_state:
-                st.session_state.preview_data = None
 
             with st.form("main_form", clear_on_submit=False):
                 if kop_exist: 
@@ -418,135 +414,136 @@ if check_password():
                 bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
                 report_file = st.file_uploader("📄 Service Report", type=['pdf'])
                 
-                btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW")
+                btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW PDF")
 
-            # --- LOGIKA PREVIEW ---
+            # --- LOGIKA GENERATE VISUAL PREVIEW ---
             if btn_preview:
-                st.session_state.preview_data = {
-                    "customer": customer, "tgl_input": tgl_input, "keperluan": keperluan,
-                    "bensin": bensin, "toll": toll, "parkir": parkir, "makan_teknisi": makan_teknisi,
-                    "uang_makan": uang_makan, "hotel": hotel, "lain_lain": lain_lain, "is_lembur": is_lembur
-                }
+                with st.spinner("Membuat bentuk PDF..."):
+                    try:
+                        total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + lain_lain
+                        tgl_iso = tgl_input.strftime('%Y-%m-%d')
+                        tgl_cetak = tgl_input.strftime('%d/%m/%Y')
+                        
+                        # --- 1. Mulai Generate FPDF ---
+                        pdf = FPDF()
+                        pdf.add_page()
+                        if kop_exist:
+                            pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
+                            pdf.set_y(10 + spasi_bawah) 
+                        else:
+                            pdf.set_y(20)
+                        
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 7, f"Customer: {customer}", ln=True)
+                        pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
+                        pdf.ln(2); pdf.set_font("Arial", "", 11)
+                        pdf.multi_cell(0, 7, f"Pekerjaan: {keperluan}"); pdf.ln(5)
+                        
+                        pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
+                        pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
+                        pdf.set_font("Arial", "", 11)
+                        
+                        dict_biaya = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
+                        for k, v in dict_biaya.items():
+                            if v > 0:
+                                pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
+                        pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
 
-            # --- BLOK TAMPILAN PREVIEW ---
-            if st.session_state.preview_data:
-                p_data = st.session_state.preview_data
-                total_preview = sum([p_data['bensin'], p_data['toll'], p_data['parkir'], p_data['makan_teknisi'], p_data['uang_makan'], p_data['hotel'], p_data['lain_lain']])
-                
+                        if is_lembur:
+                            pdf.ln(4)
+                            pdf.set_fill_color(255, 255, 0)
+                            pdf.set_font("Arial", "B", 11)
+                            pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
+
+                        # --- 2. Proses Lampiran (Concurrency Safe) ---
+                        unique_id = uuid.uuid4().hex
+                        temp_n = []; nota_pdfs = []
+                        
+                        if bukti_files:
+                            pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
+                            for i, f in enumerate(bukti_files):
+                                if f.type == "application/pdf": 
+                                    nota_pdfs.append(f)
+                                else:
+                                    img = Image.open(f).convert("RGB")
+                                    t_n = f"temp_nota_{unique_id}_{i}.jpg"
+                                    img.save(t_n, "JPEG")
+                                    temp_n.append(t_n)
+                                    pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
+
+                        main_out = f"temp_render_{unique_id}.pdf"
+                        pdf.output(main_out)
+                        
+                        merger = PdfWriter()
+                        merger.append(main_out)
+                        for n_pdf in nota_pdfs: merger.append(io.BytesIO(n_pdf.read()))
+                        if report_file: merger.append(io.BytesIO(report_file.read()))
+                        
+                        f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
+                        
+                        # --- 3. Simpan PDF & Data ke Memory ---
+                        st.session_state.preview_pdf_bytes = f_buf.getvalue()
+                        st.session_state.preview_data = {
+                            "customer": customer, "tgl_iso": tgl_iso, "nama_teknisi": nama_teknisi,
+                            "keperluan": keperluan, "bensin": bensin, "toll": toll, "parkir": parkir,
+                            "makan_teknisi": makan_teknisi, "uang_makan": uang_makan, "hotel": hotel,
+                            "lain_lain": lain_lain, "total": total, "is_lembur": is_lembur
+                        }
+                        
+                        # Cleanup file sementara
+                        if os.path.exists(main_out): os.remove(main_out)
+                        for t in temp_n: 
+                            if os.path.exists(t): os.remove(t)
+                    
+                    except Exception as e:
+                        st.error(f"Gagal memproses Preview: {e}")
+
+            # --- BLOK TAMPILAN VISUAL PREVIEW & TOMBOL KONFIRMASI ---
+            if 'preview_pdf_bytes' in st.session_state and st.session_state.preview_pdf_bytes:
                 st.markdown("---")
-                st.subheader("📑 Print Preview Laporan")
-                with st.container(border=True):
-                    st.write(f"**Customer:** {p_data['customer']}")
-                    st.write(f"**Pelaksana:** {nama_teknisi} | **Tanggal:** {p_data['tgl_input'].strftime('%d/%m/%Y')}")
-                    st.write(f"**Pekerjaan:** {p_data['keperluan']}")
-                    st.divider()
-                    
-                    dict_biaya = {"Bensin": p_data['bensin'], "Toll": p_data['toll'], "Parkir": p_data['parkir'], 
-                                  "Makan Teknisi": p_data['makan_teknisi'], "Uang Makan (LK)": p_data['uang_makan'], 
-                                  "Hotel": p_data['hotel'], "Lain-lain": p_data['lain_lain']}
-                    
-                    for k, v in dict_biaya.items():
-                        if v > 0:
-                            st.write(f"- {k}: **Rp {v:,}**")
-                            
-                    st.markdown(f"#### TOTAL PENGELUARAN: Rp {total_preview:,}")
-                    
-                    if p_data['is_lembur']:
-                        st.warning(f"🟨 Belum termasuk lembur tgl ({p_data['tgl_input'].strftime('%d/%m/%Y')})")
-                    
-                    st.info(f"📎 Lampiran: {len(bukti_files)} Nota gambar/pdf, {1 if report_file else 0} Service Report")
-
+                st.subheader("📑 Visual Print Preview (Bentuk Asli PDF)")
+                
+                # Render base64 PDF di dalam iframe (viewer PDF browser)
+                base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+                
+                st.write("") 
                 col_conf1, col_conf2 = st.columns(2)
                 
                 # TOMBOL KONFIRMASI AKHIR
-                if col_conf1.button("✅ Data Benar, Generate PDF & Simpan", use_container_width=True):
-                    with st.spinner("Sedang memproses..."):
-                        try:
-                            total = total_preview
-                            tgl_iso = p_data['tgl_input'].strftime('%Y-%m-%d')
-                            tgl_cetak = p_data['tgl_input'].strftime('%d/%m/%Y')
-                            customer_final = p_data['customer']
-                            
-                            append_to_sheets(nama_teknisi, [tgl_iso, customer_final, nama_teknisi, p_data['keperluan'], 
-                                                            p_data['bensin'], p_data['toll'], p_data['parkir'], p_data['makan_teknisi'], 
-                                                            p_data['uang_makan'], p_data['hotel'], p_data['lain_lain'], total, "", ""], p_data['is_lembur'])
-                            
-                            pdf = FPDF()
-                            pdf.add_page()
-                            if kop_exist:
-                                pdf.image(KOP_FILE_PATH, x=(210 - lebar_kop) / 2, y=10, w=lebar_kop)
-                                pdf.set_y(10 + spasi_bawah) 
-                            else:
-                                pdf.set_y(20)
-                            
-                            pdf.set_font("Arial", "B", 11)
-                            pdf.cell(0, 7, f"Customer: {customer_final}", ln=True)
-                            pdf.cell(0, 7, f"Pelaksana: {nama_teknisi} | Tanggal: {tgl_cetak}", ln=True)
-                            pdf.ln(2); pdf.set_font("Arial", "", 11)
-                            pdf.multi_cell(0, 7, f"Pekerjaan: {p_data['keperluan']}"); pdf.ln(5)
-                            
-                            pdf.set_font("Arial", "B", 11); pdf.set_fill_color(240, 240, 240)
-                            pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
-                            pdf.set_font("Arial", "", 11)
-                            
-                            for k, v in dict_biaya.items():
-                                if v > 0:
-                                    pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
-                            pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
-
-                            if p_data['is_lembur']:
-                                pdf.ln(4)
-                                pdf.set_fill_color(255, 255, 0)
-                                pdf.set_font("Arial", "B", 11)
-                                pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
-
-                            # --- UUID CONCURRENCY FIX ---
-                            unique_id = uuid.uuid4().hex
-                            temp_n = []; nota_pdfs = []
-                            
-                            if bukti_files:
-                                pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
-                                for i, f in enumerate(bukti_files):
-                                    if f.type == "application/pdf": 
-                                        nota_pdfs.append(f)
-                                    else:
-                                        img = Image.open(f).convert("RGB")
-                                        t_n = f"temp_nota_{unique_id}_{i}.jpg"
-                                        img.save(t_n, "JPEG")
-                                        temp_n.append(t_n)
-                                        pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
-
-                            main_out = f"temp_render_{unique_id}.pdf"
-                            pdf.output(main_out)
-                            
-                            merger = PdfWriter()
-                            merger.append(main_out)
-                            for n_pdf in nota_pdfs: merger.append(io.BytesIO(n_pdf.read()))
-                            if report_file: merger.append(io.BytesIO(report_file.read()))
-                            
-                            f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
-                            
-                            st.session_state.pdf_data = f_buf.getvalue()
-                            st.session_state.pdf_name = f"Laporan_{customer_final}_{tgl_iso}.pdf"
-                            st.session_state.last_customer = customer_final
-                            st.session_state.pdf_ready = True
-                            st.session_state.preview_data = None 
-                            
-                            if os.path.exists(main_out): os.remove(main_out)
-                            for t in temp_n: 
-                                if os.path.exists(t): os.remove(t)
-                            
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Gagal: {e}")
+                if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
+                    with st.spinner("Mengunggah data ke Google Sheets..."):
+                        p = st.session_state.preview_data
+                        
+                        # Update ke Sheets
+                        append_to_sheets(
+                            p['nama_teknisi'], 
+                            [p['tgl_iso'], p['customer'], p['nama_teknisi'], p['keperluan'], 
+                             p['bensin'], p['toll'], p['parkir'], p['makan_teknisi'], 
+                             p['uang_makan'], p['hotel'], p['lain_lain'], p['total'], "", ""], 
+                            p['is_lembur']
+                        )
+                        
+                        # Shift PDF dari preview ke state final siap download
+                        st.session_state.pdf_data = st.session_state.preview_pdf_bytes
+                        st.session_state.pdf_name = f"Laporan_{p['customer']}_{p['tgl_iso']}.pdf"
+                        st.session_state.last_customer = p['customer']
+                        st.session_state.pdf_ready = True
+                        
+                        # Bersihkan state preview
+                        del st.session_state.preview_data
+                        del st.session_state.preview_pdf_bytes
+                        st.rerun()
 
                 if col_conf2.button("❌ Batal / Edit Kembali", use_container_width=True):
-                    st.session_state.preview_data = None
+                    del st.session_state.preview_data
+                    del st.session_state.preview_pdf_bytes
                     st.rerun()
 
             # --- BLOK DOWNLOAD ---
             if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
-                st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan!")
+                st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan di Database!")
                 st.download_button(
                     label="📥 KLIK DI SINI UNTUK DOWNLOAD PDF", 
                     data=st.session_state.pdf_data, 
@@ -554,7 +551,7 @@ if check_password():
                     mime="application/pdf"
                 )
                 if st.button("🧹 Bersihkan Form / Input Baru"):
-                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data']:
+                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes']:
                         if key in st.session_state:
                             del st.session_state[key]
                     st.rerun()
