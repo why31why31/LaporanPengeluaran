@@ -70,10 +70,9 @@ def pdf_bytes_to_images(pdf_bytes):
     try:
         pdf_doc = pdfium.PdfDocument(pdf_bytes)
         for page in pdf_doc:
-            # Scale 2.0 memberikan resolusi jernih untuk preview
             image = page.render(scale=2.0).to_pil()
             images.append(image)
-    except Exception as e:
+    except Exception:
         pass
     return images
 
@@ -178,7 +177,7 @@ def get_user_data(nama_user):
                         color = vals[0].get('effectiveFormat', {}).get('backgroundColor', {})
                         if color.get('red', 0) > 0.8 and color.get('green', 0) > 0.8 and color.get('blue', 0) < 0.2:
                             is_l = True
-                except:
+                except Exception:
                     pass
                 lembur_flags.append(is_l)
         except Exception:
@@ -272,7 +271,7 @@ def check_password():
                 st.write("Silakan login untuk mengakses Sistem Laporan Pengeluaran.")
                 user_input = st.selectbox("Pilih Nama Anda:", list(USERS_CREDENTIALS.keys()))
                 pwd_input = st.text_input("Masukkan Password Anda:", type="password")
-                if st.button("Masuk", width="stretch"):
+                if st.button("Masuk", use_container_width=True):
                     if USERS_CREDENTIALS.get(user_input) == pwd_input:
                         st.session_state.password_correct = True
                         st.session_state.user_nama = user_input
@@ -348,7 +347,7 @@ if check_password():
                     
                     edited_df = st.data_editor(
                         styled_df,
-                        width="stretch",
+                        use_container_width=True,
                         hide_index=True,
                         disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen"],
                         column_config={
@@ -393,9 +392,25 @@ if check_password():
     else:
         tabs = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
-        # --- TAB 1: INPUT LAPORAN ---
+        # --- TAB 1: INPUT LAPORAN (DENGAN OPSI SIMPAN DRAF LOKAL) ---
         with tabs[0]:
-            opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=["Bensin", "Toll", "Parkir"])
+            # Pengecekan Spanduk Draf Tersimpan
+            if 'saved_draft' in st.session_state and st.session_state.saved_draft:
+                col_draft_info, col_draft_clear = st.columns([4, 1])
+                with col_draft_info:
+                    cust_draft_name = st.session_state.saved_draft.get('customer', 'Tanpa Nama')
+                    st.info(f"📂 **Draf Tersimpan Ditemukan!** Form di bawah telah diisi dari draf customer: **{cust_draft_name}**")
+                with col_draft_clear:
+                    if st.button("🗑️ Hapus Draf", use_container_width=True):
+                        del st.session_state.saved_draft
+                        st.toast("Draf berhasil dihapus!", icon="🧹")
+                        st.rerun()
+
+            # Mengambil nilai default dari draf jika ada
+            d = st.session_state.saved_draft if 'saved_draft' in st.session_state else {}
+            opsi_biaya_default = d.get('opsi_biaya', ["Bensin", "Toll", "Parkir"])
+
+            opsi_biaya = st.sidebar.multiselect("Pilih Input:", ["Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain"], default=opsi_biaya_default)
             lebar_kop = st.sidebar.slider("Lebar Kop (mm)", 30, 190, 70)
             spasi_bawah = st.sidebar.slider("Spasi Bawah (mm)", 10, 80, 50)
             lebar_nota = st.sidebar.slider("Lebar Nota (mm)", 50, 190, 90)
@@ -409,32 +424,60 @@ if check_password():
                     
                 c_id1, c_id2 = st.columns(2)
                 nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
-                tgl_input = c_id2.date_input("Tanggal Tugas", datetime.now())
-                customer = st.text_input("Nama Customer / Perusahaan:")
-                mesin = st.selectbox("Pilih Mesin:", ["Kilian", "Romaco", "Siebler", "MG2", "Frewitt", "Truking", "FrymaKoruma", "Stephan", "Lainnya"])
-                detail = st.text_area("Detail Pekerjaan:")
+                
+                # Auto-fill tanggal dari draf atau tanggal hari ini
+                tgl_default = d.get('tgl_input', datetime.now())
+                if isinstance(tgl_default, str):
+                    try:
+                        tgl_default = datetime.strptime(tgl_default, '%Y-%m-%d').date()
+                    except Exception:
+                        tgl_default = datetime.now()
+                tgl_input = c_id2.date_input("Tanggal Tugas", tgl_default)
+                
+                customer = st.text_input("Nama Customer / Perusahaan:", value=d.get('customer', ''))
+                
+                list_mesin = ["Kilian", "Romaco", "Siebler", "MG2", "Frewitt", "Truking", "FrymaKoruma", "Stephan", "Lainnya"]
+                idx_mesin = list_mesin.index(d.get('mesin')) if d.get('mesin') in list_mesin else 0
+                mesin = st.selectbox("Pilih Mesin:", list_mesin, index=idx_mesin)
+                
+                detail = st.text_area("Detail Pekerjaan:", value=d.get('detail', ''))
                 keperluan = f"[{mesin}] {detail}"
                 
                 bensin = toll = parkir = makan_teknisi = uang_makan = hotel = lain_lain = 0
                 col_a, col_b = st.columns(2)
-                if "Bensin" in opsi_biaya: bensin = col_a.number_input("Bensin", min_value=0)
-                if "Toll" in opsi_biaya: toll = col_b.number_input("Toll", min_value=0)
+                if "Bensin" in opsi_biaya: bensin = col_a.number_input("Bensin", min_value=0, value=int(d.get('bensin', 0)))
+                if "Toll" in opsi_biaya: toll = col_b.number_input("Toll", min_value=0, value=int(d.get('toll', 0)))
                 col_c, col_d = st.columns(2)
-                if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0)
-                if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0)
+                if "Parkir" in opsi_biaya: parkir = col_c.number_input("Parkir", min_value=0, value=int(d.get('parkir', 0)))
+                if "Makan Teknisi" in opsi_biaya: makan_teknisi = col_d.number_input("Makan Teknisi", min_value=0, value=int(d.get('makan_teknisi', 0)))
                 
-                if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0)
-                if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0)
-                if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0)
+                if "Uang Makan" in opsi_biaya: uang_makan = st.number_input("Uang Makan (Luar Kota)", min_value=0, value=int(d.get('uang_makan', 0)))
+                if "Hotel" in opsi_biaya: hotel = st.number_input("Biaya Hotel", min_value=0, value=int(d.get('hotel', 0)))
+                if "Lain-lain" in opsi_biaya: lain_lain = st.number_input("Lain-lain", min_value=0, value=int(d.get('lain_lain', 0)))
                 
-                is_lembur = st.checkbox("⚠️ Centang jika kerja Lembur")
+                is_lembur = st.checkbox("⚠️ Centang jika kerja Lembur", value=d.get('is_lembur', False))
                 
                 bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
                 report_file = st.file_uploader("📄 Service Report", type=['pdf'])
                 
-                btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW LAPORAN")
+                c_form_btn1, c_form_btn2 = st.columns(2)
+                with c_form_btn1:
+                    btn_draft = st.form_submit_button("💾 SIMPAN DRAF LAPORAN")
+                with c_form_btn2:
+                    btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW LAPORAN")
 
-            # --- LOGIKA PREVIEW LAPORAN (TERMASUK KONVERSI PDF PREVIEW) ---
+            # --- LOGIKA SIMPAN DRAF LOKAL ---
+            if btn_draft:
+                st.session_state.saved_draft = {
+                    "customer": customer, "tgl_input": tgl_input, "mesin": mesin, "detail": detail,
+                    "bensin": bensin, "toll": toll, "parkir": parkir, "makan_teknisi": makan_teknisi,
+                    "uang_makan": uang_makan, "hotel": hotel, "lain_lain": lain_lain,
+                    "is_lembur": is_lembur, "opsi_biaya": opsi_biaya
+                }
+                st.toast("✅ Draf isian laporan berhasil disimpan!", icon="💾")
+                st.rerun()
+
+            # --- LOGIKA PREVIEW LAPORAN ---
             if btn_preview:
                 with st.spinner("Menyiapkan preview laporan & lampiran..."):
                     try:
@@ -476,7 +519,7 @@ if check_password():
                         # --- 2. Proses Lampiran ---
                         unique_id = uuid.uuid4().hex
                         temp_n = []; nota_pdfs = []
-                        preview_attachments = [] # List berisi objek tuple (Label, Gambar)
+                        preview_attachments = []
                         
                         if bukti_files:
                             pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
@@ -485,7 +528,6 @@ if check_password():
                                 f.seek(0)
                                 if f.type == "application/pdf": 
                                     nota_pdfs.append(f)
-                                    # Konversi setiap halaman PDF Nota ke Gambar Preview
                                     pdf_imgs = pdf_bytes_to_images(file_bytes)
                                     for idx_p, img_p in enumerate(pdf_imgs):
                                         preview_attachments.append((f"Nota PDF #{i+1} (Hal. {idx_p+1})", img_p))
@@ -497,7 +539,6 @@ if check_password():
                                     temp_n.append(t_n)
                                     pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
 
-                        # Ekstrak preview dari file Service Report PDF
                         if report_file:
                             rep_bytes = report_file.read()
                             report_file.seek(0)
@@ -566,10 +607,9 @@ if check_password():
                     st.markdown("##### 📸 Visual Preview Seluruh Lampiran (Nota Gambar, PDF Nota, & PDF Service Report):")
                     
                     if 'preview_attachments' in st.session_state and st.session_state.preview_attachments:
-                        # Tampilkan seluruh halaman lampiran gambar & PDF yang dikonversi
                         for lbl, img_obj in st.session_state.preview_attachments:
                             st.write(f"📎 **{lbl}**")
-                            st.image(img_obj, width="stretch")
+                            st.image(img_obj, use_container_width=True)
                             st.write("")
                     else:
                         st.caption("Tidak ada lampiran dokumen/gambar yang diunggah.")
@@ -578,7 +618,7 @@ if check_password():
                 col_conf1, col_conf2 = st.columns(2)
                 
                 # TOMBOL KONFIRMASI AKHIR
-                if col_conf1.button("✅ Data Benar, Simpan ke Database", width="stretch"):
+                if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
                     with st.spinner("Mengunggah data ke Google Sheets..."):
                         append_to_sheets(
                             p['nama_teknisi'], 
@@ -593,13 +633,16 @@ if check_password():
                         st.session_state.last_customer = p['customer']
                         st.session_state.pdf_ready = True
                         
+                        # Bersihkan data preview dan draf setelah final submit
                         del st.session_state.preview_data
                         del st.session_state.preview_pdf_bytes
                         if 'preview_attachments' in st.session_state:
                             del st.session_state.preview_attachments
+                        if 'saved_draft' in st.session_state:
+                            del st.session_state.saved_draft
                         st.rerun()
 
-                if col_conf2.button("❌ Batal / Edit Kembali", width="stretch"):
+                if col_conf2.button("❌ Batal / Edit Kembali", use_container_width=True):
                     del st.session_state.preview_data
                     del st.session_state.preview_pdf_bytes
                     if 'preview_attachments' in st.session_state:
@@ -616,7 +659,7 @@ if check_password():
                     mime="application/pdf"
                 )
                 if st.button("🧹 Bersihkan Form / Input Baru"):
-                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes', 'preview_attachments']:
+                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes', 'preview_attachments', 'saved_draft']:
                         if key in st.session_state:
                             del st.session_state[key]
                     st.rerun()
@@ -688,7 +731,7 @@ if check_password():
                                 try:
                                     val = float(str(values_cell).replace(',', ''))
                                     if val > 0: st.write(f"✅ {label}: Rp {val:,.0f}")
-                                except: continue
+                                except Exception: continue
                             
                             st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
                             
