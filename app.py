@@ -10,16 +10,21 @@ import os
 from PIL import Image
 import re
 import base64
+import uuid
 
 # --- SETTING HALAMAN UTAMA (WAJIB DI PALING ATAS) ---
 st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
 
-# --- FUNGSI BACKGROUND TAMPILAN ---
+# --- FUNGSI BACKGROUND TAMPILAN (DENGAN CACHE) ---
+@st.cache_data
+def get_bg_encoded(bg_file):
+    with open(bg_file, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
 def set_background():
     bg_file = "bg_finpac.jpg"
     if os.path.exists(bg_file):
-        with open(bg_file, "rb") as f:
-            encoded_string = base64.b64encode(f.read()).decode()
+        encoded_string = get_bg_encoded(bg_file)
         st.markdown(
             f"""
             <style>
@@ -29,7 +34,7 @@ def set_background():
                 background-position: center;
                 background-attachment: fixed;
             }}
-            .stForm {{ background-color: rgba(255, 255, 255, 0.9); border-radius: 10px; padding: 20px; }}
+            .stForm {{ background-color: rgba(255, 255, 255, 0.95); border-radius: 10px; padding: 20px; }}
             </style>
             """,
             unsafe_allow_html=True
@@ -41,13 +46,13 @@ def set_background():
             .stApp {
                 background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
             }
-            .stForm { background-color: rgba(255, 255, 255, 0.7); border-radius: 10px; padding: 20px; }
+            .stForm { background-color: rgba(255, 255, 255, 0.9); border-radius: 10px; padding: 20px; }
             </style>
             """,
             unsafe_allow_html=True
         )
 
-# Panggil fungsi background agar aktif di seluruh halaman (termasuk halaman login)
+# Panggil fungsi background
 set_background()
 
 # --- 1. KONFIGURASI ---
@@ -63,9 +68,10 @@ USERS_CREDENTIALS = {
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
-# --- 2. FUNGSI GOOGLE SHEETS ---
+# --- 2. FUNGSI GOOGLE SHEETS DENGAN OPTIMASI ---
+@st.cache_resource
 def get_gcp_service(service_name, version):
-    info = st.secrets["gcp_service_account"]
+    info = dict(st.secrets["gcp_service_account"])
     creds = service_account.Credentials.from_service_account_info(info)
     return build(service_name, version, credentials=creds)
 
@@ -73,11 +79,19 @@ def append_to_sheets(nama_user, data, is_lembur=False):
     try:
         service = get_gcp_service('sheets', 'v4')
         spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-        sheet_names = [s.get('properties', {}).get('title') for s in spreadsheet.get('sheets', [])]
+        
+        sheet_id = None
+        sheet_names = []
+        for s in spreadsheet.get('sheets', []):
+            title = s.get('properties', {}).get('title')
+            sheet_names.append(title)
+            if title == nama_user:
+                sheet_id = s.get('properties', {}).get('sheetId')
         
         if nama_user not in sheet_names:
             batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
-            service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
+            response = service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
+            sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
             header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
             service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
 
@@ -91,36 +105,26 @@ def append_to_sheets(nama_user, data, is_lembur=False):
         
         updated_range = response.get('updates', {}).get('updatedRange', '')
         match = re.search(r'!A(\d+)', updated_range)
-        if match:
+        if match and is_lembur:
             row_index = int(match.group(1))
-            
-            spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-            sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
-            
-            if is_lembur:
-                bg_color = {"red": 1.0, "green": 1.0, "blue": 0.0} 
-            else:
-                bg_color = {"red": 1.0, "green": 1.0, "blue": 1.0} 
-                
-            requests = [
-                {
-                    "repeatCell": {
-                        "range": {
-                            "sheetId": sheet_id,
-                            "startRowIndex": row_index - 1,
-                            "endRowIndex": row_index,
-                            "startColumnIndex": 0,
-                            "endColumnIndex": 14 
-                        },
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": bg_color
-                            }
-                        },
-                        "fields": "userEnteredFormat.backgroundColor"
-                    }
+            bg_color = {"red": 1.0, "green": 1.0, "blue": 0.0} 
+            requests = [{
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_index - 1,
+                        "endRowIndex": row_index,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 14 
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": bg_color
+                        }
+                    },
+                    "fields": "userEnteredFormat.backgroundColor"
                 }
-            ]
+            }]
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': requests}).execute()
                 
     except Exception as e:
@@ -135,7 +139,6 @@ def get_user_data(nama_user):
         result_formula = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N", valueRenderOption="FORMULA").execute()
         formulas = result_formula.get('values', [])
         
-        # --- BACA FORMAT WARNA BACKGROUND DARI GOOGLE SHEETS ---
         lembur_flags = []
         try:
             format_req = service.spreadsheets().get(
@@ -233,6 +236,7 @@ def delete_user_row(nama_user, row_index):
     except Exception as e:
         st.error(f"Gagal hapus baris: {e}")
 
+
 # --- 3. SISTEM LOGIN ---
 def check_password():
     if "password_correct" not in st.session_state:
@@ -256,6 +260,7 @@ def check_password():
         return False
     return True
 
+
 # --- 4. APLIKASI UTAMA ---
 if check_password():
     st.sidebar.header(f"Halo, {st.session_state.user_nama}")
@@ -274,16 +279,13 @@ if check_password():
             
             list_tim = [nama for nama in USERS_CREDENTIALS.keys() if nama != "Admin"]
             target_user = st.selectbox("🎯 Pilih Nama Teknisi/User:", list_tim)
-            
             st.divider()
             
             df_admin = get_user_data(target_user)
-            
             if not df_admin.empty:
                 df_admin['original_row_index'] = df_admin.index + 2
                 df_admin['Total_Angka'] = df_admin['Total'].astype(str).str.replace(',', '').astype(float)
                 
-                # --- FILTER TANGGAL ADMIN ---
                 st.write("📅 **Filter Tanggal Laporan**")
                 col_d1, col_d2 = st.columns(2)
                 tgl_mulai_admin = col_d1.date_input("Dari Tanggal", datetime.now() - timedelta(days=7), key="d1_admin")
@@ -358,13 +360,11 @@ if check_password():
                             st.info("Tidak ada perubahan status yang diubah.")
                             
                     st.divider()
-                    
                     total_terpilih = df_admin_filtered['Total_Angka'].sum()
                     st.metric(label=f"📊 Total Pengeluaran (Tabel Terpilih)", value=f"Rp {total_terpilih:,.0f}")
                 
                 else:
                     st.info(f"Tidak ada data laporan pada rentang tanggal {tgl_mulai_admin.strftime('%d/%m/%Y')} hingga {tgl_akhir_admin.strftime('%d/%m/%Y')}.")
-                
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
                 
@@ -409,32 +409,18 @@ if check_password():
                 
                 bukti_files = st.file_uploader("📸 Nota", accept_multiple_files=True, type=['jpg','png','jpeg','pdf'])
                 report_file = st.file_uploader("📄 Service Report", type=['pdf'])
-                btn_sub = st.form_submit_button("💾 SIMPAN & GENERATE LAPORAN")
+                
+                btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW LAPORAN")
 
-            if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
-                st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan!")
-                st.download_button(
-                    label="📥 KLIK DI SINI UNTUK DOWNLOAD PDF", 
-                    data=st.session_state.pdf_data, 
-                    file_name=st.session_state.pdf_name,
-                    mime="application/pdf"
-                )
-                if st.button("🧹 Bersihkan Form / Input Baru"):
-                    del st.session_state.pdf_ready
-                    del st.session_state.pdf_data
-                    del st.session_state.pdf_name
-                    del st.session_state.last_customer
-                    st.rerun()
-
-            if btn_sub:
-                with st.spinner("Sedang memproses..."):
+            # --- LOGIKA PREVIEW LAPORAN ---
+            if btn_preview:
+                with st.spinner("Menyiapkan preview laporan..."):
                     try:
                         total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + lain_lain
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        append_to_sheets(nama_teknisi, [tgl_iso, customer, nama_teknisi, keperluan, bensin, toll, parkir, makan_teknisi, uang_makan, hotel, lain_lain, total, "", ""], is_lembur)
-                        
+                        # --- 1. Generate FPDF ---
                         pdf = FPDF()
                         pdf.add_page()
                         if kop_exist:
@@ -453,8 +439,8 @@ if check_password():
                         pdf.cell(100, 10, " Kategori Biaya", 1, 0, 'L', True); pdf.cell(60, 10, " Nominal", 1, 1, 'L', True)
                         pdf.set_font("Arial", "", 11)
                         
-                        dict_b = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
-                        for k, v in dict_b.items():
+                        dict_biaya = {"Bensin": bensin, "Toll": toll, "Parkir": parkir, "Makan Teknisi": makan_teknisi, "Uang Makan (LK)": uang_makan, "Hotel": hotel, "Lain-lain": lain_lain}
+                        for k, v in dict_biaya.items():
                             if v > 0:
                                 pdf.cell(100, 8, f" {k}", 1); pdf.cell(60, 8, f" Rp {v:,}", 1, 1)
                         pdf.set_font("Arial", "B", 11); pdf.cell(100, 10, " TOTAL", 1, 0, 'L', True); pdf.cell(60, 10, f" Rp {total:,}", 1, 1, 'L', True)
@@ -465,34 +451,141 @@ if check_password():
                             pdf.set_font("Arial", "B", 11)
                             pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
 
+                        # --- 2. Proses Lampiran ---
+                        unique_id = uuid.uuid4().hex
                         temp_n = []; nota_pdfs = []
+                        preview_images = []
+                        
                         if bukti_files:
                             pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
                             for i, f in enumerate(bukti_files):
-                                if f.type == "application/pdf": nota_pdfs.append(f)
+                                if f.type == "application/pdf": 
+                                    nota_pdfs.append(f)
                                 else:
-                                    img = Image.open(f).convert("RGB"); t_n = f"temp_nota_{i}.jpg"
-                                    img.save(t_n, "JPEG"); temp_n.append(t_n)
+                                    img = Image.open(f).convert("RGB")
+                                    # Simpan copy preview untuk UI
+                                    preview_images.append(img)
+                                    t_n = f"temp_nota_{unique_id}_{i}.jpg"
+                                    img.save(t_n, "JPEG")
+                                    temp_n.append(t_n)
                                     pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
 
-                        main_out = "temp_render.pdf"; pdf.output(main_out)
-                        merger = PdfWriter(); merger.append(main_out)
+                        main_out = f"temp_render_{unique_id}.pdf"
+                        pdf.output(main_out)
+                        
+                        merger = PdfWriter()
+                        merger.append(main_out)
                         for n_pdf in nota_pdfs: merger.append(io.BytesIO(n_pdf.read()))
                         if report_file: merger.append(io.BytesIO(report_file.read()))
                         
                         f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                         
-                        st.session_state.pdf_data = f_buf.getvalue()
-                        st.session_state.pdf_name = f"Laporan_{customer}_{tgl_iso}.pdf"
-                        st.session_state.last_customer = customer
+                        # Simpan PDF & Data ke Session State
+                        st.session_state.preview_pdf_bytes = f_buf.getvalue()
+                        st.session_state.preview_images = preview_images
+                        st.session_state.preview_data = {
+                            "customer": customer, "tgl_iso": tgl_iso, "tgl_cetak": tgl_cetak, "nama_teknisi": nama_teknisi,
+                            "keperluan": keperluan, "dict_biaya": dict_biaya, "bensin": bensin, "toll": toll, "parkir": parkir,
+                            "makan_teknisi": makan_teknisi, "uang_makan": uang_makan, "hotel": hotel,
+                            "lain_lain": lain_lain, "total": total, "is_lembur": is_lembur,
+                            "count_nota": len(bukti_files), "has_report": bool(report_file)
+                        }
+                        
+                        # Cleanup file sementara
+                        if os.path.exists(main_out): os.remove(main_out)
+                        for t in temp_n: 
+                            if os.path.exists(t): os.remove(t)
+                    
+                    except Exception as e:
+                        st.error(f"Gagal memproses Preview: {e}")
+
+            # --- BLOK TAMPILAN PREVIEW (NATIVE STREAMLIT) ---
+            if 'preview_pdf_bytes' in st.session_state and st.session_state.preview_pdf_bytes:
+                st.markdown("---")
+                st.subheader("📑 Visual Print Preview Laporan & Lampiran")
+                
+                p = st.session_state.preview_data
+                
+                with st.container(border=True):
+                    if kop_exist:
+                        st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
+                    st.markdown(f"### **Customer: {p.get('customer', '')}**")
+                    st.write(f"**Pelaksana:** {p.get('nama_teknisi', '')} | **Tanggal:** {p.get('tgl_cetak', '')}")
+                    st.write(f"**Detail Pekerjaan:** {p.get('keperluan', '')}")
+                    st.divider()
+                    
+                    st.markdown("##### 💵 Rincian Pengeluaran Biaya:")
+                    df_preview_biaya = pd.DataFrame([
+                        {"Kategori Biaya": k, "Nominal": f"Rp {v:,.0f}"} 
+                        for k, v in p.get('dict_biaya', {}).items() if v > 0
+                    ])
+                    if not df_preview_biaya.empty:
+                        st.table(df_preview_biaya)
+                    
+                    st.markdown(f"### **TOTAL PENGELUARAN: Rp {p.get('total', 0):,.0f}**")
+                    
+                    if p.get('is_lembur', False):
+                        st.warning(f"🟨 **Status Lembur:** Belum termasuk lembur tgl ({p.get('tgl_cetak', '')})")
+                    
+                    st.divider()
+                    st.markdown("##### 📸 Preview Lampiran Nota & Dokumen:")
+                    if 'preview_images' in st.session_state and st.session_state.preview_images:
+                        cols = st.columns(min(3, len(st.session_state.preview_images)))
+                        for idx, img_obj in enumerate(st.session_state.preview_images):
+                            with cols[idx % 3]:
+                                st.image(img_obj, caption=f"Nota #{idx+1}", use_container_width=True)
+                    else:
+                        st.caption("Tidak ada lampiran gambar nota.")
+                        
+                    if p.get('has_report', False):
+                        st.info("📄 File Service Report (.pdf) terdeteksi & sudah digabungkan ke lembar PDF akhir.")
+
+                st.write("") 
+                col_conf1, col_conf2 = st.columns(2)
+                
+                # TOMBOL KONFIRMASI AKHIR
+                if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
+                    with st.spinner("Mengunggah data ke Google Sheets..."):
+                        append_to_sheets(
+                            p['nama_teknisi'], 
+                            [p['tgl_iso'], p['customer'], p['nama_teknisi'], p['keperluan'], 
+                             p['bensin'], p['toll'], p['parkir'], p['makan_teknisi'], 
+                             p['uang_makan'], p['hotel'], p['lain_lain'], p['total'], "", ""], 
+                            p['is_lembur']
+                        )
+                        
+                        st.session_state.pdf_data = st.session_state.preview_pdf_bytes
+                        st.session_state.pdf_name = f"Laporan_{p['customer']}_{p['tgl_iso']}.pdf"
+                        st.session_state.last_customer = p['customer']
                         st.session_state.pdf_ready = True
                         
-                        if os.path.exists(main_out): os.remove(main_out)
-                        for t in temp_n: os.remove(t)
-                        
+                        del st.session_state.preview_data
+                        del st.session_state.preview_pdf_bytes
+                        if 'preview_images' in st.session_state:
+                            del st.session_state.preview_images
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Gagal: {e}")
+
+                if col_conf2.button("❌ Batal / Edit Kembali", use_container_width=True):
+                    del st.session_state.preview_data
+                    del st.session_state.preview_pdf_bytes
+                    if 'preview_images' in st.session_state:
+                        del st.session_state.preview_images
+                    st.rerun()
+
+            # --- BLOK DOWNLOAD ---
+            if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
+                st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan di Database!")
+                st.download_button(
+                    label="📥 KLIK DI SINI UNTUK DOWNLOAD PDF LAPORAN", 
+                    data=st.session_state.pdf_data, 
+                    file_name=st.session_state.pdf_name,
+                    mime="application/pdf"
+                )
+                if st.button("🧹 Bersihkan Form / Input Baru"):
+                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes', 'preview_images']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.rerun()
 
         # --- TAB 2: RIWAYAT MANDIRI ---
         with tabs[1]:
@@ -565,7 +658,6 @@ if check_password():
                             
                             st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
                             
-                            # --- PENGUNCIAN TOMBOL HAPUS ---
                             if status_bayar_user == "Sudah Dibayar Admin":
                                 st.error("🔒 Laporan ini tidak dapat dihapus karena sudah dikonfirmasi lunas oleh Admin.")
                             else:
