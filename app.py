@@ -12,6 +12,13 @@ import re
 import base64
 import uuid
 
+# Impor pypdfium2 untuk konversi PDF ke Gambar Preview
+try:
+    import pypdfium2 as pdfium
+    HAS_PDFIUM = True
+except ImportError:
+    HAS_PDFIUM = False
+
 # --- SETTING HALAMAN UTAMA (WAJIB DI PALING ATAS) ---
 st.set_page_config(page_title="Finpac ServiceApp", layout="wide")
 
@@ -54,6 +61,21 @@ def set_background():
 
 # Panggil fungsi background
 set_background()
+
+# --- FUNGSI KONVERSI PDF KE GAMBAR UNTUK PREVIEW ---
+def pdf_bytes_to_images(pdf_bytes):
+    images = []
+    if not HAS_PDFIUM:
+        return images
+    try:
+        pdf_doc = pdfium.PdfDocument(pdf_bytes)
+        for page in pdf_doc:
+            # Scale 2.0 memberikan resolusi jernih untuk preview
+            image = page.render(scale=2.0).to_pil()
+            images.append(image)
+    except Exception as e:
+        pass
+    return images
 
 # --- 1. KONFIGURASI ---
 USERS_CREDENTIALS = {
@@ -250,7 +272,7 @@ def check_password():
                 st.write("Silakan login untuk mengakses Sistem Laporan Pengeluaran.")
                 user_input = st.selectbox("Pilih Nama Anda:", list(USERS_CREDENTIALS.keys()))
                 pwd_input = st.text_input("Masukkan Password Anda:", type="password")
-                if st.button("Masuk", use_container_width=True):
+                if st.button("Masuk", width="stretch"):
                     if USERS_CREDENTIALS.get(user_input) == pwd_input:
                         st.session_state.password_correct = True
                         st.session_state.user_nama = user_input
@@ -326,7 +348,7 @@ if check_password():
                     
                     edited_df = st.data_editor(
                         styled_df,
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                         disabled=["Tanggal", "Customer", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link Dokumen"],
                         column_config={
@@ -412,9 +434,9 @@ if check_password():
                 
                 btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW LAPORAN")
 
-            # --- LOGIKA PREVIEW LAPORAN ---
+            # --- LOGIKA PREVIEW LAPORAN (TERMASUK KONVERSI PDF PREVIEW) ---
             if btn_preview:
-                with st.spinner("Menyiapkan preview laporan..."):
+                with st.spinner("Menyiapkan preview laporan & lampiran..."):
                     try:
                         total = bensin + toll + parkir + makan_teknisi + uang_makan + hotel + lain_lain
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
@@ -454,21 +476,34 @@ if check_password():
                         # --- 2. Proses Lampiran ---
                         unique_id = uuid.uuid4().hex
                         temp_n = []; nota_pdfs = []
-                        preview_images = []
+                        preview_attachments = [] # List berisi objek tuple (Label, Gambar)
                         
                         if bukti_files:
                             pdf.add_page(); pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "LAMPIRAN NOTA:", ln=True); pdf.ln(5)
                             for i, f in enumerate(bukti_files):
+                                file_bytes = f.read()
+                                f.seek(0)
                                 if f.type == "application/pdf": 
                                     nota_pdfs.append(f)
+                                    # Konversi setiap halaman PDF Nota ke Gambar Preview
+                                    pdf_imgs = pdf_bytes_to_images(file_bytes)
+                                    for idx_p, img_p in enumerate(pdf_imgs):
+                                        preview_attachments.append((f"Nota PDF #{i+1} (Hal. {idx_p+1})", img_p))
                                 else:
                                     img = Image.open(f).convert("RGB")
-                                    # Simpan copy preview untuk UI
-                                    preview_images.append(img)
+                                    preview_attachments.append((f"Nota Gambar #{i+1}", img))
                                     t_n = f"temp_nota_{unique_id}_{i}.jpg"
                                     img.save(t_n, "JPEG")
                                     temp_n.append(t_n)
                                     pdf.image(t_n, x=10, w=lebar_nota); pdf.ln(10)
+
+                        # Ekstrak preview dari file Service Report PDF
+                        if report_file:
+                            rep_bytes = report_file.read()
+                            report_file.seek(0)
+                            rep_imgs = pdf_bytes_to_images(rep_bytes)
+                            for idx_r, img_r in enumerate(rep_imgs):
+                                preview_attachments.append((f"Service Report PDF (Hal. {idx_r+1})", img_r))
 
                         main_out = f"temp_render_{unique_id}.pdf"
                         pdf.output(main_out)
@@ -482,7 +517,7 @@ if check_password():
                         
                         # Simpan PDF & Data ke Session State
                         st.session_state.preview_pdf_bytes = f_buf.getvalue()
-                        st.session_state.preview_images = preview_images
+                        st.session_state.preview_attachments = preview_attachments
                         st.session_state.preview_data = {
                             "customer": customer, "tgl_iso": tgl_iso, "tgl_cetak": tgl_cetak, "nama_teknisi": nama_teknisi,
                             "keperluan": keperluan, "dict_biaya": dict_biaya, "bensin": bensin, "toll": toll, "parkir": parkir,
@@ -499,10 +534,10 @@ if check_password():
                     except Exception as e:
                         st.error(f"Gagal memproses Preview: {e}")
 
-            # --- BLOK TAMPILAN PREVIEW (NATIVE STREAMLIT) ---
+            # --- BLOK TAMPILAN PREVIEW (PREVIEW LENGKAP) ---
             if 'preview_pdf_bytes' in st.session_state and st.session_state.preview_pdf_bytes:
                 st.markdown("---")
-                st.subheader("📑 Visual Print Preview Laporan & Lampiran")
+                st.subheader("📑 Visual Print Preview Laporan & Seluruh Lampiran PDF")
                 
                 p = st.session_state.preview_data
                 
@@ -528,23 +563,22 @@ if check_password():
                         st.warning(f"🟨 **Status Lembur:** Belum termasuk lembur tgl ({p.get('tgl_cetak', '')})")
                     
                     st.divider()
-                    st.markdown("##### 📸 Preview Lampiran Nota & Dokumen:")
-                    if 'preview_images' in st.session_state and st.session_state.preview_images:
-                        cols = st.columns(min(3, len(st.session_state.preview_images)))
-                        for idx, img_obj in enumerate(st.session_state.preview_images):
-                            with cols[idx % 3]:
-                                st.image(img_obj, caption=f"Nota #{idx+1}", use_container_width=True)
+                    st.markdown("##### 📸 Visual Preview Seluruh Lampiran (Nota Gambar, PDF Nota, & PDF Service Report):")
+                    
+                    if 'preview_attachments' in st.session_state and st.session_state.preview_attachments:
+                        # Tampilkan seluruh halaman lampiran gambar & PDF yang dikonversi
+                        for lbl, img_obj in st.session_state.preview_attachments:
+                            st.write(f"📎 **{lbl}**")
+                            st.image(img_obj, width="stretch")
+                            st.write("")
                     else:
-                        st.caption("Tidak ada lampiran gambar nota.")
-                        
-                    if p.get('has_report', False):
-                        st.info("📄 File Service Report (.pdf) terdeteksi & sudah digabungkan ke lembar PDF akhir.")
+                        st.caption("Tidak ada lampiran dokumen/gambar yang diunggah.")
 
                 st.write("") 
                 col_conf1, col_conf2 = st.columns(2)
                 
                 # TOMBOL KONFIRMASI AKHIR
-                if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
+                if col_conf1.button("✅ Data Benar, Simpan ke Database", width="stretch"):
                     with st.spinner("Mengunggah data ke Google Sheets..."):
                         append_to_sheets(
                             p['nama_teknisi'], 
@@ -561,15 +595,15 @@ if check_password():
                         
                         del st.session_state.preview_data
                         del st.session_state.preview_pdf_bytes
-                        if 'preview_images' in st.session_state:
-                            del st.session_state.preview_images
+                        if 'preview_attachments' in st.session_state:
+                            del st.session_state.preview_attachments
                         st.rerun()
 
-                if col_conf2.button("❌ Batal / Edit Kembali", use_container_width=True):
+                if col_conf2.button("❌ Batal / Edit Kembali", width="stretch"):
                     del st.session_state.preview_data
                     del st.session_state.preview_pdf_bytes
-                    if 'preview_images' in st.session_state:
-                        del st.session_state.preview_images
+                    if 'preview_attachments' in st.session_state:
+                        del st.session_state.preview_attachments
                     st.rerun()
 
             # --- BLOK DOWNLOAD ---
@@ -582,7 +616,7 @@ if check_password():
                     mime="application/pdf"
                 )
                 if st.button("🧹 Bersihkan Form / Input Baru"):
-                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes', 'preview_images']:
+                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes', 'preview_attachments']:
                         if key in st.session_state:
                             del st.session_state[key]
                     st.rerun()
