@@ -11,6 +11,7 @@ from PIL import Image
 import re
 import base64
 import uuid
+import time  # <-- DITAMBAHKAN UNTUK SISTEM JEDA AUTO-RETRY
 
 # Impor pypdfium2 untuk konversi PDF ke Gambar Preview
 try:
@@ -59,7 +60,6 @@ def set_background():
             unsafe_allow_html=True
         )
 
-# Panggil fungsi background
 set_background()
 
 # --- FUNGSI KONVERSI PDF KE GAMBAR UNTUK PREVIEW ---
@@ -89,7 +89,7 @@ USERS_CREDENTIALS = {
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
-# --- 2. FUNGSI GOOGLE SHEETS DENGAN OPTIMASI ---
+# --- 2. FUNGSI GOOGLE SHEETS (DENGAN SISTEM AUTO-RETRY ANTI SSL ERROR) ---
 @st.cache_resource
 def get_gcp_service(service_name, version):
     info = dict(st.secrets["gcp_service_account"])
@@ -97,166 +97,188 @@ def get_gcp_service(service_name, version):
     return build(service_name, version, credentials=creds)
 
 def append_to_sheets(nama_user, data, is_lembur=False):
-    try:
-        service = get_gcp_service('sheets', 'v4')
-        spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-        
-        sheet_id = None
-        sheet_names = []
-        for s in spreadsheet.get('sheets', []):
-            title = s.get('properties', {}).get('title')
-            sheet_names.append(title)
-            if title == nama_user:
-                sheet_id = s.get('properties', {}).get('sheetId')
-        
-        if nama_user not in sheet_names:
-            batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
-            response = service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
-            sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
-            header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
-            service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
-
-        response = service.spreadsheets().values().append(
-            spreadsheetId=SPREADSHEET_ID, 
-            range=f"'{nama_user}'!A1", 
-            valueInputOption="USER_ENTERED", 
-            insertDataOption="INSERT_ROWS", 
-            body={'values': [data]}
-        ).execute()
-        
-        updated_range = response.get('updates', {}).get('updatedRange', '')
-        match = re.search(r'!A(\d+)', updated_range)
-        if match and is_lembur:
-            row_index = int(match.group(1))
-            bg_color = {"red": 1.0, "green": 1.0, "blue": 0.0} 
-            requests = [{
-                "repeatCell": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": row_index - 1,
-                        "endRowIndex": row_index,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": 14 
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": bg_color
-                        }
-                    },
-                    "fields": "userEnteredFormat.backgroundColor"
-                }
-            }]
-            service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': requests}).execute()
-                
-    except Exception as e:
-        st.error(f"Gagal simpan ke Sheets: {e}")
-
-def get_user_data(nama_user):
-    try:
-        service = get_gcp_service('sheets', 'v4')
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N").execute()
-        values = result.get('values', [])
-        
-        result_formula = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N", valueRenderOption="FORMULA").execute()
-        formulas = result_formula.get('values', [])
-        
-        lembur_flags = []
+    for attempt in range(3):
         try:
-            format_req = service.spreadsheets().get(
-                spreadsheetId=SPREADSHEET_ID,
-                ranges=[f"'{nama_user}'!A:A"],
-                includeGridData=True
+            service = get_gcp_service('sheets', 'v4')
+            spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+            
+            sheet_id = None
+            sheet_names = []
+            for s in spreadsheet.get('sheets', []):
+                title = s.get('properties', {}).get('title')
+                sheet_names.append(title)
+                if title == nama_user:
+                    sheet_id = s.get('properties', {}).get('sheetId')
+            
+            if nama_user not in sheet_names:
+                batch_request = {'requests': [{'addSheet': {'properties': {'title': nama_user}}}]}
+                response = service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_request).execute()
+                sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+                header = [["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]]
+                service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A1", valueInputOption="USER_ENTERED", body={'values': header}).execute()
+
+            response = service.spreadsheets().values().append(
+                spreadsheetId=SPREADSHEET_ID, 
+                range=f"'{nama_user}'!A1", 
+                valueInputOption="USER_ENTERED", 
+                insertDataOption="INSERT_ROWS", 
+                body={'values': [data]}
             ).execute()
             
-            row_data = format_req.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
-            for r in row_data[1:]: 
-                is_l = False
-                try:
-                    vals = r.get('values', [])
-                    if vals:
-                        color = vals[0].get('effectiveFormat', {}).get('backgroundColor', {})
-                        if color.get('red', 0) > 0.8 and color.get('green', 0) > 0.8 and color.get('blue', 0) < 0.2:
-                            is_l = True
-                except Exception:
-                    pass
-                lembur_flags.append(is_l)
-        except Exception:
-            pass 
-        
-        if not values or len(values) < 2: 
-            return pd.DataFrame()
-        
-        max_cols = 14
-        processed_values = []
-        processed_flags = []
-        header = ["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]
-        
-        for i, row in enumerate(values[1:]):
-            row_idx = i + 1
-            if not row or row[0] == "":
-                continue
+            updated_range = response.get('updates', {}).get('updatedRange', '')
+            match = re.search(r'!A(\d+)', updated_range)
+            if match and is_lembur:
+                row_index = int(match.group(1))
+                bg_color = {"red": 1.0, "green": 1.0, "blue": 0.0} 
+                requests = [{
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": row_index - 1,
+                            "endRowIndex": row_index,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 14 
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": bg_color
+                            }
+                        },
+                        "fields": "userEnteredFormat.backgroundColor"
+                    }
+                }]
+                service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': requests}).execute()
+            return True
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+            else:
+                st.error(f"Gagal simpan ke Sheets: {e}")
+                return False
+
+def get_user_data(nama_user):
+    for attempt in range(3):
+        try:
+            service = get_gcp_service('sheets', 'v4')
+            result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N").execute()
+            values = result.get('values', [])
             
-            while len(row) < max_cols:
-                row.append("")
+            result_formula = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{nama_user}'!A:N", valueRenderOption="FORMULA").execute()
+            formulas = result_formula.get('values', [])
+            
+            lembur_flags = []
+            try:
+                format_req = service.spreadsheets().get(
+                    spreadsheetId=SPREADSHEET_ID,
+                    ranges=[f"'{nama_user}'!A:A"],
+                    includeGridData=True
+                ).execute()
                 
-            if row_idx < len(formulas) and len(formulas[row_idx]) > 12:
-                raw_formula = formulas[row_idx][12]
-                if raw_formula:
-                    row[12] = raw_formula
+                row_data = format_req.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
+                for r in row_data[1:]: 
+                    is_l = False
+                    try:
+                        vals = r.get('values', [])
+                        if vals:
+                            color = vals[0].get('effectiveFormat', {}).get('backgroundColor', {})
+                            if color.get('red', 0) > 0.8 and color.get('green', 0) > 0.8 and color.get('blue', 0) < 0.2:
+                                is_l = True
+                    except Exception:
+                        pass
+                    lembur_flags.append(is_l)
+            except Exception:
+                pass 
+            
+            if not values or len(values) < 2: 
+                return pd.DataFrame()
+            
+            max_cols = 14
+            processed_values = []
+            processed_flags = []
+            header = ["Tanggal", "Customer", "Nama", "Keperluan", "Bensin", "Toll", "Parkir", "Makan Teknisi", "Uang Makan", "Hotel", "Lain-lain", "Total", "Link GDrive", "Status Bayar"]
+            
+            for i, row in enumerate(values[1:]):
+                row_idx = i + 1
+                if not row or row[0] == "":
+                    continue
+                
+                while len(row) < max_cols:
+                    row.append("")
                     
-            processed_values.append(row[:max_cols])
-            
-            flag = False
-            if i < len(lembur_flags):
-                flag = lembur_flags[i]
-            processed_flags.append(flag)
-            
-        if not processed_values:
-            return pd.DataFrame()
-            
-        df = pd.DataFrame(processed_values, columns=header)
-        df['Is_Lembur'] = processed_flags
-        df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
-        df = df.dropna(subset=['Tanggal'])
-        df = df.sort_values(by='Tanggal', ascending=False)
-        return df
-    except Exception as e:
-        st.error(f"Gagal memproses data riwayat: {e}")
-        return pd.DataFrame()
+                if row_idx < len(formulas) and len(formulas[row_idx]) > 12:
+                    raw_formula = formulas[row_idx][12]
+                    if raw_formula:
+                        row[12] = raw_formula
+                        
+                processed_values.append(row[:max_cols])
+                
+                flag = False
+                if i < len(lembur_flags):
+                    flag = lembur_flags[i]
+                processed_flags.append(flag)
+                
+            if not processed_values:
+                return pd.DataFrame()
+                
+            df = pd.DataFrame(processed_values, columns=header)
+            df['Is_Lembur'] = processed_flags
+            df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+            df = df.dropna(subset=['Tanggal'])
+            df = df.sort_values(by='Tanggal', ascending=False)
+            return df
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1) # Jeda 1 detik lalu coba lagi
+            else:
+                st.error(f"Gagal memproses data riwayat: {e}")
+                return pd.DataFrame()
 
 def update_gdrive_link(nama_user, row_index, link, label):
-    try:
-        service = get_gcp_service('sheets', 'v4')
-        formula = f'=HYPERLINK("{link}"; "{label}")'
-        target_range = f"'{nama_user}'!M{row_index}"
-        body = {'values': [[formula]]}
-        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=target_range, valueInputOption="USER_ENTERED", body=body).execute()
-        return True
-    except Exception as e:
-        st.error(f"Gagal update link: {e}")
-        return False
+    for attempt in range(3):
+        try:
+            service = get_gcp_service('sheets', 'v4')
+            formula = f'=HYPERLINK("{link}"; "{label}")'
+            target_range = f"'{nama_user}'!M{row_index}"
+            body = {'values': [[formula]]}
+            service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=target_range, valueInputOption="USER_ENTERED", body=body).execute()
+            return True
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+            else:
+                st.error(f"Gagal update link: {e}")
+                return False
 
 def update_payment_status(nama_user, row_index, status_text):
-    try:
-        service = get_gcp_service('sheets', 'v4')
-        target_range = f"'{nama_user}'!N{row_index}"
-        body = {'values': [[status_text]]}
-        service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=target_range, valueInputOption="USER_ENTERED", body=body).execute()
-        return True
-    except Exception as e:
-        st.error(f"Gagal update status bayar: {e}")
-        return False
+    for attempt in range(3):
+        try:
+            service = get_gcp_service('sheets', 'v4')
+            target_range = f"'{nama_user}'!N{row_index}"
+            body = {'values': [[status_text]]}
+            service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=target_range, valueInputOption="USER_ENTERED", body=body).execute()
+            return True
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+            else:
+                st.error(f"Gagal update status bayar: {e}")
+                return False
 
 def delete_user_row(nama_user, row_index):
-    try:
-        service = get_gcp_service('sheets', 'v4')
-        spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-        sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
-        request = {'deleteDimension': {'range': {'sheetId': sheet_id, 'dimension': 'ROWS', 'startIndex': row_index, 'endIndex': row_index + 1}}}
-        service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': [request]}).execute()
-    except Exception as e:
-        st.error(f"Gagal hapus baris: {e}")
-
+    for attempt in range(3):
+        try:
+            service = get_gcp_service('sheets', 'v4')
+            spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+            sheet_id = next(s['properties']['sheetId'] for s in spreadsheet['sheets'] if s['properties']['title'] == nama_user)
+            request = {'deleteDimension': {'range': {'sheetId': sheet_id, 'dimension': 'ROWS', 'startIndex': row_index, 'endIndex': row_index + 1}}}
+            service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={'requests': [request]}).execute()
+            return True
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+            else:
+                st.error(f"Gagal hapus baris: {e}")
+                return False
 
 # --- 3. SISTEM LOGIN ---
 def check_password():
@@ -280,7 +302,6 @@ def check_password():
                         st.error("Password Salah!")
         return False
     return True
-
 
 # --- 4. APLIKASI UTAMA ---
 if check_password():
@@ -394,7 +415,6 @@ if check_password():
 
         # --- TAB 1: INPUT LAPORAN (DENGAN OPSI SIMPAN DRAF LOKAL) ---
         with tabs[0]:
-            # Pengecekan Spanduk Draf Tersimpan
             if 'saved_draft' in st.session_state and st.session_state.saved_draft:
                 col_draft_info, col_draft_clear = st.columns([4, 1])
                 with col_draft_info:
@@ -406,7 +426,6 @@ if check_password():
                         st.toast("Draf berhasil dihapus!", icon="🧹")
                         st.rerun()
 
-            # Mengambil nilai default dari draf jika ada
             d = st.session_state.saved_draft if 'saved_draft' in st.session_state else {}
             opsi_biaya_default = d.get('opsi_biaya', ["Bensin", "Toll", "Parkir"])
 
@@ -425,7 +444,6 @@ if check_password():
                 c_id1, c_id2 = st.columns(2)
                 nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
                 
-                # Auto-fill tanggal dari draf atau tanggal hari ini
                 tgl_default = d.get('tgl_input', datetime.now())
                 if isinstance(tgl_default, str):
                     try:
@@ -466,7 +484,6 @@ if check_password():
                 with c_form_btn2:
                     btn_preview = st.form_submit_button("🔍 TAMPILKAN PREVIEW LAPORAN")
 
-            # --- LOGIKA SIMPAN DRAF LOKAL ---
             if btn_draft:
                 st.session_state.saved_draft = {
                     "customer": customer, "tgl_input": tgl_input, "mesin": mesin, "detail": detail,
@@ -477,7 +494,6 @@ if check_password():
                 st.toast("✅ Draf isian laporan berhasil disimpan!", icon="💾")
                 st.rerun()
 
-            # --- LOGIKA PREVIEW LAPORAN ---
             if btn_preview:
                 with st.spinner("Menyiapkan preview laporan & lampiran..."):
                     try:
@@ -485,7 +501,6 @@ if check_password():
                         tgl_iso = tgl_input.strftime('%Y-%m-%d')
                         tgl_cetak = tgl_input.strftime('%d/%m/%Y')
                         
-                        # --- 1. Generate FPDF ---
                         pdf = FPDF()
                         pdf.add_page()
                         if kop_exist:
@@ -516,7 +531,6 @@ if check_password():
                             pdf.set_font("Arial", "B", 11)
                             pdf.cell(160, 9, f" Belum termasuk lembur tgl ({tgl_cetak})", 0, 1, 'L', True)
 
-                        # --- 2. Proses Lampiran ---
                         unique_id = uuid.uuid4().hex
                         temp_n = []; nota_pdfs = []
                         preview_attachments = []
@@ -556,7 +570,6 @@ if check_password():
                         
                         f_buf = io.BytesIO(); merger.write(f_buf); f_buf.seek(0)
                         
-                        # Simpan PDF & Data ke Session State
                         st.session_state.preview_pdf_bytes = f_buf.getvalue()
                         st.session_state.preview_attachments = preview_attachments
                         st.session_state.preview_data = {
@@ -567,7 +580,6 @@ if check_password():
                             "count_nota": len(bukti_files), "has_report": bool(report_file)
                         }
                         
-                        # Cleanup file sementara
                         if os.path.exists(main_out): os.remove(main_out)
                         for t in temp_n: 
                             if os.path.exists(t): os.remove(t)
@@ -575,7 +587,6 @@ if check_password():
                     except Exception as e:
                         st.error(f"Gagal memproses Preview: {e}")
 
-            # --- BLOK TAMPILAN PREVIEW (PREVIEW LENGKAP) ---
             if 'preview_pdf_bytes' in st.session_state and st.session_state.preview_pdf_bytes:
                 st.markdown("---")
                 st.subheader("📑 Visual Print Preview Laporan & Seluruh Lampiran PDF")
@@ -617,7 +628,6 @@ if check_password():
                 st.write("") 
                 col_conf1, col_conf2 = st.columns(2)
                 
-                # TOMBOL KONFIRMASI AKHIR
                 if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
                     with st.spinner("Mengunggah data ke Google Sheets..."):
                         append_to_sheets(
@@ -633,7 +643,6 @@ if check_password():
                         st.session_state.last_customer = p['customer']
                         st.session_state.pdf_ready = True
                         
-                        # Bersihkan data preview dan draf setelah final submit
                         del st.session_state.preview_data
                         del st.session_state.preview_pdf_bytes
                         if 'preview_attachments' in st.session_state:
@@ -649,7 +658,6 @@ if check_password():
                         del st.session_state.preview_attachments
                     st.rerun()
 
-            # --- BLOK DOWNLOAD ---
             if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
                 st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan di Database!")
                 st.download_button(
