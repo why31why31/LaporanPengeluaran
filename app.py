@@ -11,7 +11,7 @@ from PIL import Image
 import re
 import base64
 import uuid
-import time  # <-- DITAMBAHKAN UNTUK SISTEM JEDA AUTO-RETRY
+import time
 
 # Impor pypdfium2 untuk konversi PDF ke Gambar Preview
 try:
@@ -62,16 +62,17 @@ def set_background():
 
 set_background()
 
-# --- FUNGSI KONVERSI PDF KE GAMBAR UNTUK PREVIEW ---
+# --- FUNGSI KONVERSI PDF (DENGAN PEMBERSIH MEMORI ANTI MALLOC ERROR) ---
 def pdf_bytes_to_images(pdf_bytes):
     images = []
     if not HAS_PDFIUM:
         return images
     try:
-        pdf_doc = pdfium.PdfDocument(pdf_bytes)
-        for page in pdf_doc:
-            image = page.render(scale=2.0).to_pil()
-            images.append(image)
+        # Menggunakan 'with' untuk memastikan memori C-level selalu dibersihkan
+        with pdfium.PdfDocument(pdf_bytes) as pdf_doc:
+            for page in pdf_doc:
+                image = page.render(scale=2.0).to_pil()
+                images.append(image)
     except Exception:
         pass
     return images
@@ -89,7 +90,7 @@ USERS_CREDENTIALS = {
 SPREADSHEET_ID = "1IX6TAhHaf1rwJyQKY9MkMXaN1zVye24TyVgmma8YIU8"
 KOP_FILE_PATH = "kop_tetap.jpg"
 
-# --- 2. FUNGSI GOOGLE SHEETS (DENGAN SISTEM AUTO-RETRY ANTI SSL ERROR) ---
+# --- 2. FUNGSI GOOGLE SHEETS ---
 @st.cache_resource
 def get_gcp_service(service_name, version):
     info = dict(st.secrets["gcp_service_account"])
@@ -204,7 +205,7 @@ def get_user_data(nama_user):
                 
                 while len(row) < max_cols:
                     row.append("")
-                    
+                
                 if row_idx < len(formulas) and len(formulas[row_idx]) > 12:
                     raw_formula = formulas[row_idx][12]
                     if raw_formula:
@@ -228,7 +229,7 @@ def get_user_data(nama_user):
             return df
         except Exception as e:
             if attempt < 2:
-                time.sleep(1) # Jeda 1 detik lalu coba lagi
+                time.sleep(1)
             else:
                 st.error(f"Gagal memproses data riwayat: {e}")
                 return pd.DataFrame()
@@ -374,7 +375,6 @@ if check_password():
                         column_config={
                             "Link Dokumen": st.column_config.LinkColumn(
                                 "📄 Link Dokumen", 
-                                help="Klik untuk membuka PDF Service Report di GDrive",
                                 display_text="Buka Lampiran"
                             ),
                             "Is_Lembur": None 
@@ -391,29 +391,26 @@ if check_password():
                                 if nilai_baru_checkbox != nilai_lama_checkbox:
                                     original_row = int(df_admin_filtered.loc[idx, 'original_row_index'])
                                     status_teks = "Sudah Dibayar Admin" if nilai_baru_checkbox else ""
-                                    
                                     update_payment_status(target_user, original_row, status_teks)
                                     perubahan_terjadi = True
                                     
                         if perubahan_terjadi:
                             st.success("✅ Semua status pembayaran berhasil diperbarui!")
                             st.rerun()
-                        else:
-                            st.info("Tidak ada perubahan status yang diubah.")
                             
                     st.divider()
                     total_terpilih = df_admin_filtered['Total_Angka'].sum()
                     st.metric(label=f"📊 Total Pengeluaran (Tabel Terpilih)", value=f"Rp {total_terpilih:,.0f}")
                 
                 else:
-                    st.info(f"Tidak ada data laporan pada rentang tanggal {tgl_mulai_admin.strftime('%d/%m/%Y')} hingga {tgl_akhir_admin.strftime('%d/%m/%Y')}.")
+                    st.info("Tidak ada data laporan pada rentang tanggal tersebut.")
             else:
                 st.info(f"Belum ada riwayat data laporan yang masuk dari {target_user}.")
                 
     else:
         tabs = st.tabs(["📝 Input Laporan", "📊 Riwayat & Rincian"])
 
-        # --- TAB 1: INPUT LAPORAN (DENGAN OPSI SIMPAN DRAF LOKAL) ---
+        # --- TAB 1: INPUT LAPORAN ---
         with tabs[0]:
             if 'saved_draft' in st.session_state and st.session_state.saved_draft:
                 col_draft_info, col_draft_clear = st.columns([4, 1])
@@ -423,7 +420,6 @@ if check_password():
                 with col_draft_clear:
                     if st.button("🗑️ Hapus Draf", use_container_width=True):
                         del st.session_state.saved_draft
-                        st.toast("Draf berhasil dihapus!", icon="🧹")
                         st.rerun()
 
             d = st.session_state.saved_draft if 'saved_draft' in st.session_state else {}
@@ -438,9 +434,7 @@ if check_password():
             with st.form("main_form", clear_on_submit=False):
                 if kop_exist: 
                     st.image(KOP_FILE_PATH, width=int(lebar_kop * 3))
-                else:
-                    st.warning("⚠️ File 'kop_tetap.jpg' tidak ditemukan.")
-                    
+                
                 c_id1, c_id2 = st.columns(2)
                 nama_teknisi = c_id1.text_input("Nama Pelaksana", value=st.session_state.user_nama, disabled=True)
                 
@@ -611,25 +605,19 @@ if check_password():
                     
                     st.markdown(f"### **TOTAL PENGELUARAN: Rp {p.get('total', 0):,.0f}**")
                     
-                    if p.get('is_lembur', False):
-                        st.warning(f"🟨 **Status Lembur:** Belum termasuk lembur tgl ({p.get('tgl_cetak', '')})")
-                    
                     st.divider()
-                    st.markdown("##### 📸 Visual Preview Seluruh Lampiran (Nota Gambar, PDF Nota, & PDF Service Report):")
                     
                     if 'preview_attachments' in st.session_state and st.session_state.preview_attachments:
                         for lbl, img_obj in st.session_state.preview_attachments:
                             st.write(f"📎 **{lbl}**")
                             st.image(img_obj, use_container_width=True)
                             st.write("")
-                    else:
-                        st.caption("Tidak ada lampiran dokumen/gambar yang diunggah.")
 
                 st.write("") 
                 col_conf1, col_conf2 = st.columns(2)
                 
                 if col_conf1.button("✅ Data Benar, Simpan ke Database", use_container_width=True):
-                    with st.spinner("Mengunggah data ke Google Sheets..."):
+                    with st.spinner("Mengunggah data..."):
                         append_to_sheets(
                             p['nama_teknisi'], 
                             [p['tgl_iso'], p['customer'], p['nama_teknisi'], p['keperluan'], 
@@ -654,25 +642,13 @@ if check_password():
                 if col_conf2.button("❌ Batal / Edit Kembali", use_container_width=True):
                     del st.session_state.preview_data
                     del st.session_state.preview_pdf_bytes
-                    if 'preview_attachments' in st.session_state:
-                        del st.session_state.preview_attachments
                     st.rerun()
 
             if 'pdf_ready' in st.session_state and st.session_state.pdf_ready:
-                st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan di Database!")
-                st.download_button(
-                    label="📥 KLIK DI SINI UNTUK DOWNLOAD PDF LAPORAN", 
-                    data=st.session_state.pdf_data, 
-                    file_name=st.session_state.pdf_name,
-                    mime="application/pdf"
-                )
-                if st.button("🧹 Bersihkan Form / Input Baru"):
-                    for key in ['pdf_ready', 'pdf_data', 'pdf_name', 'last_customer', 'preview_data', 'preview_pdf_bytes', 'preview_attachments', 'saved_draft']:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    st.rerun()
+                st.success(f"✅ Data {st.session_state.last_customer} Berhasil Disimpan!")
+                st.download_button("📥 KLIK DI SINI UNTUK DOWNLOAD PDF LAPORAN", data=st.session_state.pdf_data, file_name=st.session_state.pdf_name, mime="application/pdf")
 
-        # --- TAB 2: RIWAYAT MANDIRI ---
+        # --- TAB 2: RIWAYAT MANDIRI (DENGAN FORM ANTI-MALLOC CRASH) ---
         with tabs[1]:
             st.header(f"📊 Riwayat: {st.session_state.user_nama}")
             
@@ -694,24 +670,17 @@ if check_password():
                         tgl_str = row['Tanggal'].strftime('%d/%m/%Y')
                         cust_name = row.get('Customer', 'Unknown')
                         label_hyperlink = f"{cust_name}_{tgl_str}"
-                        
                         lembur_marker = " 🟨 (Lembur)" if row.get('Is_Lembur', False) else ""
 
                         with st.expander(f"📅 {tgl_str} - {cust_name}{lembur_marker}"):
-                            if row.get('Is_Lembur', False):
-                                st.warning("⚠️ Laporan ini ditandai sebagai pekerjaan lembur.")
-                                
                             status_bayar_user = row.iloc[13] if len(row) >= 14 else ""
                             if status_bayar_user == "Sudah Dibayar Admin":
                                 st.success("💰 **Bon Sudah Dibayarkan oleh Admin**")
                             else:
                                 st.warning("⏳ **Status: Menunggu Pembayaran (Pending)**")
                                 
-                            st.markdown(f"**Customer:** {cust_name}")
-                            
                             raw_link = row.iloc[12] if len(row) >= 13 else ""
                             display_link = ""
-                            
                             if 'HYPERLINK' in str(raw_link):
                                 urls = re.findall(r'"(http[^"]+)"', str(raw_link))
                                 if urls: display_link = urls[0]
@@ -722,12 +691,14 @@ if check_password():
                                 st.success(f"🔗 [Buka PDF: {label_hyperlink}]({display_link})")
                             
                             st.divider()
-                            st.write("🔗 **Update Link GDrive (Label otomatis rapi):**")
-                            c_link, c_save = st.columns([3, 1])
-                            with c_link:
-                                link_val = st.text_input("Paste Link PDF:", value=display_link, key=f"link_txt_{i}", label_visibility="collapsed")
-                            with c_save:
-                                if st.button("💾 Simpan", key=f"btn_link_{i}"):
+                            
+                            # FORM KHUSUS UNTUK UPDATE LINK GDrive (Anti Memory Crash)
+                            with st.form(key=f"form_link_update_{i}"):
+                                st.write("🔗 **Update Link GDrive (Label otomatis rapi):**")
+                                link_val = st.text_input("Paste Link PDF:", value=display_link, label_visibility="collapsed")
+                                btn_save_link = st.form_submit_button("💾 Simpan Link")
+                                
+                                if btn_save_link:
                                     if update_gdrive_link(st.session_state.user_nama, int(row['original_row_index']), link_val, label_hyperlink):
                                         st.toast("Link berhasil disimpan!", icon="✅")
                                         st.rerun()
@@ -743,9 +714,7 @@ if check_password():
                             
                             st.subheader(f"Total: Rp {float(str(row.get('Total', 0)).replace(',', '')):,.0f}")
                             
-                            if status_bayar_user == "Sudah Dibayar Admin":
-                                st.error("🔒 Laporan ini tidak dapat dihapus karena sudah dikonfirmasi lunas oleh Admin.")
-                            else:
+                            if status_bayar_user != "Sudah Dibayar Admin":
                                 if st.button(f"🗑️ Hapus Laporan Ini", key=f"del_lap_{i}"):
                                     delete_user_row(st.session_state.user_nama, int(row['original_row_index']) - 1)
                                     st.success("Data berhasil dihapus!"); st.rerun()
